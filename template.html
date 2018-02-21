@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="en-US">
+<head>
+  <meta charset="utf-8">
+  <meta name="generator" content="pandoc">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes">
+  <meta name="author" content="Patrick Dougherty">
+$if(noindex)$
+  <meta name="robots" content="noindex, follow">
+$endif$
+$if(description)$
+  <meta name="Description" content="$description$">
+$endif$
+  <title>$pagetitle$ - Port67</title>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Lora:400,700%7cInconsolata:400,700">
+  <link rel="stylesheet" href="/site.mini.css">
+</head>
+<body>
+
+  <header>
+    <div class="links">
+      <a href="/index.html">Home</a>
+      <a></a>
+      <a href="/contact.html">About</a>
+    </div>
+  </header>
+
+  <section>
+    <article>
+$body$
+$if(prev)$
+      <a href="$prev$" id="small-back">Previous</a>
+$endif$
+$if(next)$
+      <a href="$next$" id="small-forward">Next</a>
+$endif$
+    </article>
+$if(prev)$
+    <a href="$prev$" id="big-back">❮</a>
+$endif$
+$if(next)$
+    <a href="$next$" id="big-forward">❯</a>
+$endif$
+  </section>
+
+  <footer>
+    <hr>
+    <div class="links">
+      <p>© 2018 Patrick Dougherty</p>
+      <a></a>
+      <a href="https://github.com/patrickdoc/patrickdoc.github.io">source</a>
+      <a href="mailto:patrick.doc@port67.org">patrick.doc@port67.org</a>
+    </div>
+  </footer>
+
+</body>
+</html>
