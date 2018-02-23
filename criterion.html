@@ -67,12 +67,13 @@ measure func iters <span class="fu">=</span>
 
     <span class="co">-- Measure returns a /Measured/ record,</span>
     <span class="co">-- and time at end of measurement.</span>
-    return (endStats <span class="fu">-</span> startStats, endTime)</code></pre></div>
+    return (mkMeasured endStats startStats, endTime)</code></pre></div>
 <p>With that, it becomes much easier to talk about particular optimizations. Here are some of the bigger/trickier ones I worked on.</p>
 <ol>
 <li><a href="running-batches.html">Running Batches</a></li>
 <li><a href="optimizing-iterations.html">Optimizing Iterations</a></li>
 <li><a href="better-loop.html">Better Loop</a></li>
+<li><a href="criterion-results.html">Results</a></li>
 </ol>
       <a href="running-batches.html" id="small-forward">Next</a>
     </article>
