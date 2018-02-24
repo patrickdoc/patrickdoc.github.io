@@ -22,7 +22,283 @@
   <section>
     <article>
 <h1 id="running-batches-in-criterion">Running Batches in Criterion</h1>
-<p>The trials of <code>whnf</code> and <code>nf</code></p>
+<p>In the introduction, I glossed over batching by inserting the undefined function <code>runRepeatedly</code>. The <code>measure</code> function actually takes the action to run as an argument. It is simply a data-collecting wrapper around the action. So the question is, where does the action come from?</p>
+<p>If you’ve written a benchmark with Criterion before, you’ve made the actions yourself with <code>whnf[IO]</code> and <code>nf[IO]</code>. I’ll work through <code>nf</code> because <code>whnf</code> is just a simplified version.</p>
+<p>It is difficult to convince GHC to do work for no reason, which is exactly what the timing loop is asking for. Criterion is compiled with <code>-O2</code> enabled, so I’ll use that when demonstrating. To be sure that GHC is doing what we think it is, we’ll need to look at the compiled <a href="https://ghc.haskell.org/trac/ghc/wiki/Commentary/Compiler/GeneratedCode">stg</a> output. I’m going to use <code>-ddump-to-file -ddump-stg -dsuppress-all</code> to dump the output to a file and make it easier to read.</p>
+<p>Our goal is to create this function:</p>
+<div class="sourceCode"><pre class="sourceCode haskell"><code class="sourceCode haskell"><span class="co">-- Apply an argument, x, to a function, f, n times, reducing</span>
+<span class="co">-- the result to normal form.</span>
+<span class="ot">nf ::</span> (b <span class="ot">-&gt;</span> ()) <span class="ot">-&gt;</span> (a <span class="ot">-&gt;</span> b) <span class="ot">-&gt;</span> a <span class="ot">-&gt;</span> <span class="dt">Int</span> <span class="ot">-&gt;</span> <span class="dt">IO</span> ()
+nf rnf func x n <span class="fu">=</span> undefined</code></pre></div>
+<p><code>rnf</code> takes the place of <code>Control.DeepSeq.rnf</code>. The real code uses <code>(NFData b)</code> to get the reducing function, but we can supply anything with the right type. We don’t really care about what the function does, just that it is applied. This also removes the dependency, which makes it very easy for you to test these functions for yourself.</p>
+<p>Here is a simple setup that should let us test various implementations. I’ve included the final argument after the <code>$</code> to emphasize that <code>nf</code> doesn’t really use the number of iterations. When you create a benchmark with it, you are not providing the number of iterations; that comes later.</p>
+<div class="sourceCode"><pre class="sourceCode haskell"><code class="sourceCode haskell"><span class="co">-- Nf.hs</span>
+<span class="kw">module</span> <span class="dt">Main</span> <span class="kw">where</span>
+
+<span class="co">-- Use an nf implementation to run</span>
+<span class="co">-- @map (^2) [1..10]@ one million times.</span>
+<span class="ot">main ::</span> <span class="dt">IO</span> ()
+main <span class="fu">=</span> nf (const ()) (map (<span class="fu">^</span><span class="dv">2</span>)) [<span class="dv">1</span><span class="fu">..</span><span class="dv">10</span>] <span class="fu">$</span> <span class="dv">1000000</span>
+
+<span class="ot">nf ::</span> (b <span class="ot">-&gt;</span> ()) <span class="ot">-&gt;</span> (a <span class="ot">-&gt;</span> b) <span class="ot">-&gt;</span> a <span class="ot">-&gt;</span> <span class="dt">Int</span> <span class="ot">-&gt;</span> <span class="dt">IO</span> ()
+nf <span class="fu">=</span> undefined</code></pre></div>
+<p>To compile and run with all my options:</p>
+<div class="sourceCode"><pre class="sourceCode bash"><code class="sourceCode bash"><span class="co"># Optimize and dump stg</span>
+$ <span class="ex">ghc</span> -O2 -ddump-stg -ddump-to-file -dsuppress-all Nf.hs
+<span class="co"># Print runtime statistics for analysis</span>
+$ <span class="ex">./Nf</span> +RTS -s</code></pre></div>
+<h2 id="a-first-try">A First Try</h2>
+<p>Our first attempt will be just basic recursion.</p>
+<div class="sourceCode"><pre class="sourceCode haskell"><code class="sourceCode haskell"><span class="co">-- First attempt</span>
+<span class="ot">nfFirst ::</span> (b <span class="ot">-&gt;</span> ()) <span class="ot">-&gt;</span> (a <span class="ot">-&gt;</span> b) <span class="ot">-&gt;</span> a <span class="ot">-&gt;</span> <span class="dt">Int</span> <span class="ot">-&gt;</span> <span class="dt">IO</span> ()
+nfFirst rnf func x n
+    <span class="fu">|</span> n <span class="fu">&lt;=</span> <span class="dv">0</span>    <span class="fu">=</span> return ()
+    <span class="fu">|</span> otherwise <span class="fu">=</span> <span class="kw">let</span> y <span class="fu">=</span> rnf (func x)
+                  <span class="kw">in</span> nfFirst rnf func x (n<span class="fu">-</span><span class="dv">1</span>)</code></pre></div>
+<p>If you haven’t looked at stg output before, it looks vaguely like Haskell. The most important rule for our analysis is that <code>let</code> allocates a thunk, and <code>case</code> performs evaluation. Aside from that, you mostly just need to do a little work to track where all the names come from. Here’s our output, trimmed for space.</p>
+<pre><code>$wnfFirst =
+    \r [ww_s4yk void_0E]
+        case &lt;=# [ww_s4yk 0#] of sat_s4ym {
+          __DEFAULT -&gt;
+              case tagToEnum# [sat_s4ym] of {
+                False -&gt;
+                    case -# [ww_s4yk 1#] of sat_s4yo {
+                      __DEFAULT -&gt; $wnfFirst sat_s4yo void#;
+                    };
+                True -&gt; Unit# [()];
+              };
+        };
+
+nfFirst1 =
+    \r [w_s4yp w1_s4yq w2_s4yr w3_s4ys void_0E]
+        case w3_s4ys of { I# ww1_s4yv -&gt; $wnfFirst ww1_s4yv void#; };
+
+nfFirst =
+    \r [eta_B5 eta_B4 eta_B3 eta_B2 void_0E]
+        nfFirst1 eta_B5 eta_B4 eta_B3 eta_B2 void#;</code></pre>
+<p>Our function <code>nfFirst</code> is passed four variables and the IO token. You can mostly ignore the IO related stuff, but <a href="http://blog.ezyang.com/2011/05/unraveling-the-mystery-of-the-io-monad/">this</a> post has some good information if you haven’t seen it before. We are benchmarking pure functions, so do not actually use the IO state. The <code>eta</code>s are, in order, <code>rnf func x n</code>.</p>
+<p><code>nfFirst</code> passes its arguments on to <code>nfFirst1</code>, which unboxes <code>n</code>. Finally, <code>nfFirst1</code> calls <code>$wnfFirst</code> which does the work of the function. Unfortunately, <code>nfFirst1</code> drops <code>rnf func x</code>. Only the <code>Int</code> is used by <code>$wnfFirst</code>. This is bad news because it means our function can not possibly be evaluating <code>func x</code>. Just to confirm, we can look at the body of the worker loop.</p>
+<p>First, it checks if <code>n</code> is less than or equal to 0. Then it converts the result to a Bool. Finally, it either subtracts 1 from <code>n</code> and loops, or terminates.</p>
+<p>GHC foiled our first attempt. It realized that <code>y</code> was never used, so removed it. We will need to convince GHC that <code>y</code> should be evaluated even though we don’t use it.</p>
+<p>If we run <code>Nf</code>, we can double check that nothing is happening. This is the same result as <code>main = return ()</code>.</p>
+<pre><code>          41,008 bytes allocated in the heap
+           3,312 bytes copied during GC
+          36,184 bytes maximum residency (1 sample(s))
+          21,160 bytes maximum slop
+               2 MB total memory in use (0 MB lost due to fragmentation)
+
+                                     Tot time (elapsed)  Avg pause  Max pause
+  Gen  0         0 colls,     0 par    0.000s   0.000s     0.0000s    0.0000s
+  Gen  1         1 colls,     0 par    0.000s   0.000s     0.0000s    0.0000s
+
+  INIT    time    0.000s  (  0.000s elapsed)
+  MUT     time    0.000s  (  0.001s elapsed)
+  GC      time    0.000s  (  0.000s elapsed)
+  EXIT    time    0.000s  (  0.000s elapsed)
+  Total   time    0.000s  (  0.002s elapsed)
+
+  %GC     time       0.0%  (0.0% elapsed)
+
+  Alloc rate    0 bytes per MUT second
+
+  Productivity 100.0% of total user, 89.8% of total elapsed</code></pre>
+<h2 id="adding-strictness">Adding Strictness</h2>
+<p>We can trick GHC by adding strictness to our function. One way of doing this without too much work is the <code>BangPatterns</code> extension. All we have to do is turn it on and add one <code>!</code>.</p>
+<div class="sourceCode"><pre class="sourceCode haskell"><code class="sourceCode haskell"><span class="ot">{-# LANGUAGE BangPatterns #-}</span>
+<span class="kw">module</span> <span class="dt">Main</span> <span class="kw">where</span>
+
+<span class="fu">...</span>
+
+<span class="co">-- Add Strictness</span>
+<span class="ot">nfBang ::</span> (b <span class="ot">-&gt;</span> ()) <span class="ot">-&gt;</span> (a <span class="ot">-&gt;</span> b) <span class="ot">-&gt;</span> a <span class="ot">-&gt;</span> <span class="dt">Int</span> <span class="ot">-&gt;</span> <span class="dt">IO</span> ()
+nfBang rnf func x n
+    <span class="fu">|</span> n <span class="fu">&lt;=</span> <span class="dv">0</span>    <span class="fu">=</span> return ()
+    <span class="fu">|</span> otherwise <span class="fu">=</span> <span class="kw">let</span> <span class="fu">!</span>y <span class="fu">=</span> rnf (func x)
+                  <span class="kw">in</span> nfBang rnf func x (n<span class="fu">-</span><span class="dv">1</span>)</code></pre></div>
+<p>Comparing the output, we now have:</p>
+<pre><code>$wnfBang =
+    \r [w_s4zQ w1_s4zR w2_s4zS ww_s4zT void_0E]
+        case &lt;=# [ww_s4zT 0#] of sat_s4zV {
+          __DEFAULT -&gt;
+              case tagToEnum# [sat_s4zV] of {
+                False -&gt;
+                    let { sat_s4zX = \u [] w1_s4zR w2_s4zS;
+                    } in
+                      case w_s4zQ sat_s4zX of {
+                        () -&gt;
+                            case -# [ww_s4zT 1#] of sat_s4zZ {
+                              __DEFAULT -&gt; $wnfBang w_s4zQ w1_s4zR w2_s4zS sat_s4zZ void#;
+                            };
+                      };
+                True -&gt; Unit# [()];
+              };
+        };
+
+nfBang1 =
+    \r [w_s4A0 w1_s4A1 w2_s4A2 w3_s4A3 void_0E]
+        case w3_s4A3 of {
+          I# ww1_s4A6 -&gt; $wnfBang w_s4A0 w1_s4A1 w2_s4A2 ww1_s4A6 void#;
+        };
+
+nfBang =
+    \r [eta_B5 eta_B4 eta_B3 eta_B2 void_0E]
+        nfBang1 eta_B5 eta_B4 eta_B3 eta_B2 void#;</code></pre>
+<p><code>$wnfBang</code> now accepts all the arguments, which is promising. If we look further down, there is only one sticking point. We introduced a <code>let</code>. If you follow the names, you’ll see that <code>func x</code> is made into a thunk before <code>rnf (func x)</code> is reduced. We will need to make sure <code>func x</code> is evaluated first.</p>
+<p>But there is a bigger problem. If we run the code with <code>nfBang</code> in our <code>main</code>, nothing happens.</p>
+<pre><code>          41,008 bytes allocated in the heap
+           3,312 bytes copied during GC
+          36,184 bytes maximum residency (1 sample(s))
+          21,160 bytes maximum slop
+               2 MB total memory in use (0 MB lost due to fragmentation)
+
+                                     Tot time (elapsed)  Avg pause  Max pause
+  Gen  0         0 colls,     0 par    0.000s   0.000s     0.0000s    0.0000s
+  Gen  1         1 colls,     0 par    0.000s   0.000s     0.0000s    0.0000s
+
+  INIT    time    0.000s  (  0.000s elapsed)
+  MUT     time    0.000s  (  0.001s elapsed)
+  GC      time    0.000s  (  0.000s elapsed)
+  EXIT    time    0.000s  (  0.000s elapsed)
+  Total   time    0.000s  (  0.001s elapsed)
+
+  %GC     time       0.0%  (0.0% elapsed)
+
+  Alloc rate    0 bytes per MUT second
+
+  Productivity 100.0% of total user, 90.4% of total elapsed</code></pre>
+<p>Even though our code changed, the runtime didn’t. You can see why if you look deeper into the stg. <code>nfBang</code> was inlined into <code>main</code>. After that, GHC gets another chance to optimize away <code>func x</code>. So <code>main</code> is again turned into just a counting loop. To combat this, we can mark <code>nfBang</code> as <code>NOINLINE</code>. This prevents GHC from changing our carefully written function. It also means that <code>nfBang</code> is not affected by the user’s optimization level, which is a win.</p>
+<div class="sourceCode"><pre class="sourceCode haskell"><code class="sourceCode haskell"><span class="ot">nfBang ::</span> <span class="fu">...</span>
+nfBang rnf func x <span class="fu">=</span> <span class="fu">...</span>
+<span class="ot">{-# NOINLINE nfBang #-}</span></code></pre></div>
+<pre><code>      48,041,008 bytes allocated in the heap
+           7,272 bytes copied during GC
+          36,184 bytes maximum residency (1 sample(s))
+          29,352 bytes maximum slop
+               2 MB total memory in use (0 MB lost due to fragmentation)
+
+                                     Tot time (elapsed)  Avg pause  Max pause
+  Gen  0        45 colls,     0 par    0.000s   0.000s     0.0000s    0.0001s
+  Gen  1         1 colls,     0 par    0.000s   0.000s     0.0000s    0.0000s
+
+  INIT    time    0.000s  (  0.000s elapsed)
+  MUT     time    0.012s  (  0.015s elapsed)
+  GC      time    0.000s  (  0.000s elapsed)
+  EXIT    time    0.000s  (  0.000s elapsed)
+  Total   time    0.012s  (  0.016s elapsed)
+
+  %GC     time       0.0%  (1.8% elapsed)
+
+  Alloc rate    4,003,417,333 bytes per MUT second
+
+  Productivity 100.0% of total user, 96.5% of total elapsed</code></pre>
+<p>This also affected <code>nfFirst</code>, so you might want to mark that <code>NOINLINE</code> as well to see the difference.</p>
+<h2 id="more-strictness">More Strictness</h2>
+<p>We can remove the <code>func x</code> thunk by applying a bit more strictness. This time we will use <code>seq</code> to make it look a little nicer.</p>
+<div class="sourceCode"><pre class="sourceCode haskell"><code class="sourceCode haskell"><span class="ot">nfStricter ::</span> (b <span class="ot">-&gt;</span> ()) <span class="ot">-&gt;</span> (a <span class="ot">-&gt;</span> b) <span class="ot">-&gt;</span> a <span class="ot">-&gt;</span> <span class="dt">Int</span> <span class="ot">-&gt;</span> <span class="dt">IO</span> ()
+nfStricter rnf func x n 
+    <span class="fu">|</span> n <span class="fu">&lt;=</span> <span class="dv">0</span>    <span class="fu">=</span> return ()
+    <span class="fu">|</span> otherwise <span class="fu">=</span> <span class="kw">let</span> <span class="fu">!</span>y <span class="fu">=</span> func x
+                  <span class="kw">in</span> rnf y <span class="ot">`seq`</span> nfStricter rnf func x (n<span class="fu">-</span><span class="dv">1</span>)
+<span class="ot">{-# NOINLINE nfStricter #-}</span></code></pre></div>
+<p>If we look at the output, we squashed one issue and created another.</p>
+<pre><code>nfStricter1 =
+    \r [w_s4z3 w1_s4z4 w2_s4z5 w3_s4z6 void_0E]
+        case w3_s4z6 of {
+          I# ww1_s4z9 -&gt; $wnfStricter w_s4z3 w1_s4z4 w2_s4z5 ww1_s4z9 void#;
+        };
+nfStricter =
+    \r [eta_B5 eta_B4 eta_B3 eta_B2 void_0E]
+        nfStricter1 eta_B5 eta_B4 eta_B3 eta_B2 void#;
+$wnfStricter =
+    \r [w_s4za w1_s4zb w2_s4zc ww_s4zd void_0E]
+        case &lt;=# [ww_s4zd 0#] of sat_s4zf {
+          __DEFAULT -&gt;
+              case tagToEnum# [sat_s4zf] of {
+                False -&gt;
+                    case w1_s4zb w2_s4zc of y_s4zh {
+                      __DEFAULT -&gt;
+                          case w_s4za y_s4zh of {
+                            () -&gt;
+                                case -# [ww_s4zd 1#] of sat_s4zj {
+                                  __DEFAULT -&gt;
+                                      let { sat_s4zk = NO_CCS I#! [sat_s4zj];
+                                      } in  nfStricter w_s4za w1_s4zb w2_s4zc sat_s4zk void#;
+                                };
+                          };
+                    };
+                True -&gt; Unit# [()];
+              };
+        };</code></pre>
+<p>We are now properly evaluating <code>rnf (func x)</code>, but we introduced another <code>let</code> right before the recursive call. Because our function is marked <code>NOINLINE</code>, it can’t inline into itself. So our function is wasting time boxing <code>n</code>, only to unbox it on the next iteration.</p>
+<p>We are also passing <code>rnf</code>, <code>func</code>, and <code>x</code> to the function every time, even though we don’t have to. We have one (and a half) more trick to tighten this loop.</p>
+<h2 id="final-form">Final Form</h2>
+<p>Instead of making <code>nf</code> recursive, we can create a function that just takes <code>n</code> as input. This is what I was hinting at in the beginning. We are really interested in taking <code>rnf</code>, <code>func</code>, and <code>x</code>, and returning a function that runs those <code>n</code> times. Here is the final form of <code>nf</code>:</p>
+<div class="sourceCode"><pre class="sourceCode haskell"><code class="sourceCode haskell"><span class="ot">nfFinal ::</span> (b <span class="ot">-&gt;</span> ()) <span class="ot">-&gt;</span> (a <span class="ot">-&gt;</span> b) <span class="ot">-&gt;</span> a <span class="ot">-&gt;</span> (<span class="dt">Int</span> <span class="ot">-&gt;</span> <span class="dt">IO</span> ())
+nfFinal rnf func x <span class="fu">=</span> go
+  <span class="kw">where</span>
+    go n <span class="fu">|</span> n <span class="fu">&lt;=</span> <span class="dv">0</span>    <span class="fu">=</span> return () 
+         <span class="fu">|</span> otherwise <span class="fu">=</span> <span class="kw">let</span> <span class="fu">!</span>y <span class="fu">=</span> func x
+                       <span class="kw">in</span> rnf y <span class="ot">`seq`</span> go (n<span class="fu">-</span><span class="dv">1</span>)
+<span class="ot">{-# NOINLINE nfFinal #-}</span></code></pre></div>
+<p>This results in output that is incredibly close to what we want, but falls just short.</p>
+<pre><code>$wnfFinal =
+  \r [w_s4zl w1_s4zm w2_s4zn ww_s4zo void_0E]
+    case &lt;=# [ww_s4zo 0#] of sat_s4zq {
+      __DEFAULT -&gt;
+        case tagToEnum# [sat_s4zq] of {
+          False -&gt;
+            case w1_s4zm w2_s4zn of y_s4zs {
+              __DEFAULT -&gt;
+                case w_s4zl y_s4zs of {
+                  () -&gt;
+                    case -# [ww_s4zo 1#] of sat_s4zA {
+                      __DEFAULT -&gt;
+                        let-no-escape {
+                          $wgo_s4zu =
+                            sat-only \r [ww1_s4zv void_0E]
+                              case &lt;=# [ww1_s4zv 0#] of sat_s4zx {
+                                __DEFAULT -&gt;
+                                  case tagToEnum# [sat_s4zx] of {
+                                    False -&gt;
+                                      case -# [ww1_s4zv 1#] of sat_s4zz {
+                                        __DEFAULT -&gt; $wgo_s4zu sat_s4zz void#;
+                                      };
+                                    True -&gt; Unit# [()];
+                                  };
+                              };
+                        } in  $wgo_s4zu sat_s4zA void#;
+                    };
+                    };
+                  };</code></pre>
+<p>This loop performs perfectly well the first time, but then enters a tight counting loop. The <code>let-no-escape</code> ensures our counter stays in a register so it doesn’t have to keep passing it as an argument.</p>
+<p>The only way I found to defeat this under <code>-O2</code> was to use <a href="http://downloads.haskell.org/~ghc/latest/docs/html/users_guide/using-optimisation.html#ghc-flag--ffull-laziness">-fno-full-laziness</a>. This leads to the final output:</p>
+<pre><code>nfFinal1 =
+  \r [rnf_s4yr func_s4ys x_s4yt eta_s4yu void_0E]
+    case eta_s4yu of {
+      I# ww1_s4yx -&gt;
+        let-no-escape {
+          $wgo_s4yy =
+            sat-only \r [ww2_s4yz void_0E]
+              case &lt;=# [ww2_s4yz 0#] of sat_s4yB {
+                __DEFAULT -&gt;
+                  case tagToEnum# [sat_s4yB] of {
+                    False -&gt;
+                      case func_s4ys x_s4yt of y_s4yD {
+                        __DEFAULT -&gt;
+                          case rnf_s4yr y_s4yD of {
+                            () -&gt;
+                              case -# [ww2_s4yz 1#] of sat_s4yF {
+                                __DEFAULT -&gt; $wgo_s4yy sat_s4yF void#;
+                              };
+                          };
+                      };
+                    True -&gt; Unit# [()];
+                  };
+              };
+        } in  $wgo_s4yy ww1_s4yx void#;
+    };</code></pre>
+<p>That is the best implementation that I know how to write. After all that, Criterion is slightly faster and slightly more accurate. The changes I’m making will all work together to make visible improvements, so I’ll save the summary for the last post. The outcome of these optimizations won’t be shocking because Criterion was a top-rate library before I did anything, but the improvements are nothing to sneeze at.</p>
+<p>You can see the original discussion <a href="https://github.com/bos/criterion/issues/183">here</a>.</p>
       <a href="criterion.html" id="small-back">Previous</a>
       <a href="optimizing-iterations.html" id="small-forward">Next</a>
     </article>
