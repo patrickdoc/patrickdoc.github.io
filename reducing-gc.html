@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html lang="en-US">
+<head>
+  <meta charset="utf-8">
+  <meta name="generator" content="pandoc">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes">
+  <meta name="author" content="Patrick Dougherty">
+  <title>Reducing GC - Criterion</title>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Lora:400,700%7cInconsolata:400,700">
+  <link rel="stylesheet" href="/site.mini.css">
+</head>
+<body>
+
+  <header>
+    <div class="links">
+      <a href="/index.html">Home</a>
+      <a></a>
+      <a href="/about.html">About</a>
+    </div>
+  </header>
+
+  <section>
+    <article>
+<h1 id="reducing-the-impact-of-garbage-collection">Reducing the Impact of Garbage Collection</h1>
+<p>Although the allocation change decreased the amount of memory being created, it did not help with the run time/copying problem. This benchmark in particular emphasized the issue.</p>
+<div class="sourceCode"><pre class="sourceCode haskell"><code class="sourceCode haskell"><span class="ot">longGc ::</span> [<span class="dt">Benchmark</span>]
+longGc <span class="fu">=</span>
+    <span class="kw">let</span> small <span class="fu">=</span> Map.fromList [ (k, v) <span class="fu">|</span> k <span class="ot">&lt;-</span> [<span class="dv">1</span><span class="fu">..</span><span class="dv">100</span>], v <span class="ot">&lt;-</span> [<span class="st">&quot;data&quot;</span>] ]
+        large <span class="fu">=</span> Map.fromList [ (k, v) <span class="fu">|</span> k <span class="ot">&lt;-</span> [<span class="dv">1</span><span class="fu">..</span><span class="dv">1000000</span>], v <span class="ot">&lt;-</span> [<span class="st">&quot;data&quot;</span>] ]
+        <span class="kw">in</span> [ bench <span class="st">&quot;small-fast&quot;</span> <span class="fu">$</span> whnf id small
+           , bench <span class="st">&quot;large-slow&quot;</span> <span class="fu">$</span> whnf id large
+           ]</code></pre></div>
+<p>Theoretically these functions should be pretty much the same. The only difference is the amount of live memory when running them. The benchmark looked like this though:</p>
+<pre><code>benchmarking small-fast
+measurement took 5.03 s
+...
+
+benchmarking large-slow
+measurement took 69.20 s
+...
+
+                            Tot Time (elapsed)
+ Gen  1      2430 colls,     68.188s  68.226s
+
+ Total   time   75.000s ( 75.117s elapsed)</code></pre>
+<p>So we need to somewhow reduce the amount of time spent collecting the first generation. Thinking back to our <code>measure</code> loop, this is somewhat self-inflicted.</p>
+<pre><code>measure func iters =
+    -- See /Reducing GC/ Below
+    performGC
+    startStats &lt;- getRTSStats
+    startTime &lt;- getTime
+    runRepeatedly func iters
+    endTime &lt;- getTime
+    performGC
+    endStats &lt;- getRTSStats
+
+    -- Measure returns a /Measured/ record,
+    -- and time at end of measurement.
+    return (mkMeasured endStats startStats, endTime)</code></pre>
+<p>We have two calls to <code>performGC</code>, which is a manual way of calling the garbage collector. There were also two calls to <code>performGC</code> in the parent function, meaning we were paying four times for every sample taken. The parent ones can be removed almost immediately. They were just copied to the new <code>measure</code> location when they should have been permanently moved.</p>
+<p>That cuts the time in half, but we still have the two pesky ones in <code>measure</code>. The issue is that sometimes you need to work on a large data structure, like the <code>Map</code> above.</p>
+<h2 id="a-quick-primer-on-the-garbage-collector">A Quick Primer on the Garbage Collector</h2>
+<p>If you aren’t familiar with how the garbage collector works, here’s a quick review. The gc can be tuned, but I’ll just cover the defaults.</p>
+<p>When GHC runs your program, it maintains the heap so you don’t have to. But because you never call <code>free</code> as you would in a language like C, GHC has to figure out when to reclaim the “garbage” memory no longer in use. It uses a <a href="http://www.memorymanagement.org/glossary/g.html#term-generational-garbage-collection">generational garbage collector</a> to keep track of your memory.</p>
+<p>It works on the hypothesis that most memory does not live very long, which is often a successful model for functional languages. When you try to allocate some new memory, it looks in Gen 0 for space. If there isn’t any, it goes through all of Gen 0, kicking out dead blocks and moving live data to Gen 1. That is a “minor” garbage collection.</p>
+<p>If it tries to move data to Gen 1 and there is no space, it performs a similar collection. However, instead of moving live data up another generation, it allocates twice the current size and copies everything over. This space grows depending on the program and can become quite costly to collect. This is a “major” collection.</p>
+<p><code>performGC</code> is asking for a major collection. We can ask for just a minor collection with <code>performMinorGC</code>.</p>
+<h2 id="getting-stats">Getting Stats</h2>
+<p>As I just hinted, we want to move to <code>performMinorGC</code>, but the question is, why are we calling the gc here? Each time the garbage collector runs, it updates stats about the program. Fields like <code>max live bytes</code> and <code>allocated bytes</code> are only accurate immediately after a garbage collection.</p>
+<p>After a bit of reading in GHC’s Runtime System (which you can follow <a href="https://github.com/bos/criterion/pull/187#discussion_r170491797">here</a>), I was able to confirm that these stats are updated in both major and minor collections. So the stats reported are at least up to date.</p>
+<p>It is hard to quantify the impact that major vs. minor gc’s have on the actual sample though. The state of the heap impacts the speed of programs more than one would like. The trade-off in a language like Haskell is that you don’t have to manage the heap in your code, but you also <em>can’t</em>.</p>
+<p>This is my way of writing a disclaimer: from all my tests, it would seem that using <code>performGC</code> vs. <code>performMinorGC</code> does not greatly impact the reported times. However, if you come across any measurements that are significantly different between Criterion versions, please report them. I certainly did not think of every edge case when thinking about and testing this code.</p>
+      <a href="reducing-allocation.html" id="small-back">Previous</a>
+      <a href="criterion-results.html" id="small-forward">Next</a>
+    </article>
+    <a href="reducing-allocation.html" id="big-back">❮</a>
+    <a href="criterion-results.html" id="big-forward">❯</a>
+  </section>
+
+  <footer>
+    <hr>
+    <div class="links">
+      <p>© 2018 Patrick Dougherty</p>
+      <a></a>
+      <a href="https://github.com/patrickdoc/patrickdoc.github.io">source</a>
+      <a href="mailto:patrick.doc@port67.org">patrick.doc@port67.org</a>
+    </div>
+  </footer>
+
+</body>
+</html>
