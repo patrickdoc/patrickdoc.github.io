@@ -56,7 +56,7 @@ nfFirst rnf func x n
     <span class="fu">|</span> otherwise <span class="fu">=</span> <span class="kw">let</span> y <span class="fu">=</span> rnf (func x)
                   <span class="kw">in</span> nfFirst rnf func x (n<span class="fu">-</span><span class="dv">1</span>)</code></pre></div>
 <p>If you haven’t looked at stg output before, it looks vaguely like Haskell. The most important rule for our analysis is that <code>let</code> allocates a thunk, and <code>case</code> performs evaluation. Aside from that, you mostly just need to do a little work to track where all the names come from. Here’s our output, trimmed for space.</p>
-<pre><code>$wnfFirst =
+<pre class="none"><code>$wnfFirst =
     \r [ww_s4yk void_0E]
         case &lt;=# [ww_s4yk 0#] of sat_s4ym {
           __DEFAULT -&gt;
@@ -81,27 +81,27 @@ nfFirst =
 <p>First, it checks if <code>n</code> is less than or equal to 0. Then it converts the result to a Bool. Finally, it either subtracts 1 from <code>n</code> and loops, or terminates.</p>
 <p>GHC foiled our first attempt. It realized that <code>y</code> was never used, so removed it. We will need to convince GHC that <code>y</code> should be evaluated even though we don’t use it.</p>
 <p>If we run <code>Nf</code>, we can double check that nothing is happening. This is the same result as <code>main = return ()</code>.</p>
-<pre><code>          41,008 bytes allocated in the heap
-           3,312 bytes copied during GC
-          36,184 bytes maximum residency (1 sample(s))
-          21,160 bytes maximum slop
-               2 MB total memory in use (0 MB lost due to fragmentation)
+<pre class="none"><code>        41,008 bytes allocated in the heap
+         3,312 bytes copied during GC
+        36,184 bytes maximum residency (1 sample(s))
+        21,160 bytes maximum slop
+             2 MB total memory in use (0 MB lost due to fragmentation)
 
-                                     Tot time (elapsed)  Avg pause  Max pause
-  Gen  0         0 colls,     0 par    0.000s   0.000s     0.0000s    0.0000s
-  Gen  1         1 colls,     0 par    0.000s   0.000s     0.0000s    0.0000s
+                                   Tot time (elapsed)  Avg pause  Max pause
+Gen  0         0 colls,     0 par    0.000s   0.000s     0.0000s    0.0000s
+Gen  1         1 colls,     0 par    0.000s   0.000s     0.0000s    0.0000s
 
-  INIT    time    0.000s  (  0.000s elapsed)
-  MUT     time    0.000s  (  0.001s elapsed)
-  GC      time    0.000s  (  0.000s elapsed)
-  EXIT    time    0.000s  (  0.000s elapsed)
-  Total   time    0.000s  (  0.002s elapsed)
+INIT    time    0.000s  (  0.000s elapsed)
+MUT     time    0.000s  (  0.001s elapsed)
+GC      time    0.000s  (  0.000s elapsed)
+EXIT    time    0.000s  (  0.000s elapsed)
+Total   time    0.000s  (  0.002s elapsed)
 
-  %GC     time       0.0%  (0.0% elapsed)
+%GC     time       0.0%  (0.0% elapsed)
 
-  Alloc rate    0 bytes per MUT second
+Alloc rate    0 bytes per MUT second
 
-  Productivity 100.0% of total user, 89.8% of total elapsed</code></pre>
+Productivity 100.0% of total user, 89.8% of total elapsed</code></pre>
 <h2 id="adding-strictness">Adding Strictness</h2>
 <p>We can trick GHC by adding strictness to our function. One way of doing this without too much work is the <code>BangPatterns</code> extension. All we have to do is turn it on and add one <code>!</code>.</p>
 <div class="sourceCode"><pre class="sourceCode haskell"><code class="sourceCode haskell"><span class="ot">{-# LANGUAGE BangPatterns #-}</span>
@@ -116,7 +116,7 @@ nfBang rnf func x n
     <span class="fu">|</span> otherwise <span class="fu">=</span> <span class="kw">let</span> <span class="fu">!</span>y <span class="fu">=</span> rnf (func x)
                   <span class="kw">in</span> nfBang rnf func x (n<span class="fu">-</span><span class="dv">1</span>)</code></pre></div>
 <p>Comparing the output, we now have:</p>
-<pre><code>$wnfBang =
+<pre class="none"><code>$wnfBang =
     \r [w_s4zQ w1_s4zR w2_s4zS ww_s4zT void_0E]
         case &lt;=# [ww_s4zT 0#] of sat_s4zV {
           __DEFAULT -&gt;
@@ -145,52 +145,52 @@ nfBang =
         nfBang1 eta_B5 eta_B4 eta_B3 eta_B2 void#;</code></pre>
 <p><code>$wnfBang</code> now accepts all the arguments, which is promising. If we look further down, there is only one sticking point. We introduced a <code>let</code>. If you follow the names, you’ll see that <code>func x</code> is made into a thunk before <code>rnf (func x)</code> is reduced. We will need to make sure <code>func x</code> is evaluated first.</p>
 <p>But there is a bigger problem. If we run the code with <code>nfBang</code> in our <code>main</code>, nothing happens.</p>
-<pre><code>          41,008 bytes allocated in the heap
-           3,312 bytes copied during GC
-          36,184 bytes maximum residency (1 sample(s))
-          21,160 bytes maximum slop
-               2 MB total memory in use (0 MB lost due to fragmentation)
+<pre class="none"><code>        41,008 bytes allocated in the heap
+         3,312 bytes copied during GC
+        36,184 bytes maximum residency (1 sample(s))
+        21,160 bytes maximum slop
+             2 MB total memory in use (0 MB lost due to fragmentation)
 
-                                     Tot time (elapsed)  Avg pause  Max pause
-  Gen  0         0 colls,     0 par    0.000s   0.000s     0.0000s    0.0000s
-  Gen  1         1 colls,     0 par    0.000s   0.000s     0.0000s    0.0000s
+                                   Tot time (elapsed)  Avg pause  Max pause
+Gen  0         0 colls,     0 par    0.000s   0.000s     0.0000s    0.0000s
+Gen  1         1 colls,     0 par    0.000s   0.000s     0.0000s    0.0000s
 
-  INIT    time    0.000s  (  0.000s elapsed)
-  MUT     time    0.000s  (  0.001s elapsed)
-  GC      time    0.000s  (  0.000s elapsed)
-  EXIT    time    0.000s  (  0.000s elapsed)
-  Total   time    0.000s  (  0.001s elapsed)
+INIT    time    0.000s  (  0.000s elapsed)
+MUT     time    0.000s  (  0.001s elapsed)
+GC      time    0.000s  (  0.000s elapsed)
+EXIT    time    0.000s  (  0.000s elapsed)
+Total   time    0.000s  (  0.001s elapsed)
 
-  %GC     time       0.0%  (0.0% elapsed)
+%GC     time       0.0%  (0.0% elapsed)
 
-  Alloc rate    0 bytes per MUT second
+Alloc rate    0 bytes per MUT second
 
-  Productivity 100.0% of total user, 90.4% of total elapsed</code></pre>
+Productivity 100.0% of total user, 90.4% of total elapsed</code></pre>
 <p>Even though our code changed, the runtime didn’t. You can see why if you look deeper into the stg. <code>nfBang</code> was inlined into <code>main</code>. After that, GHC gets another chance to optimize away <code>func x</code>. So <code>main</code> is again turned into just a counting loop. To combat this, we can mark <code>nfBang</code> as <code>NOINLINE</code>. This prevents GHC from changing our carefully written function. It also means that <code>nfBang</code> is not affected by the user’s optimization level, which is a win.</p>
 <div class="sourceCode"><pre class="sourceCode haskell"><code class="sourceCode haskell"><span class="ot">nfBang ::</span> <span class="fu">...</span>
 nfBang rnf func x <span class="fu">=</span> <span class="fu">...</span>
 <span class="ot">{-# NOINLINE nfBang #-}</span></code></pre></div>
-<pre><code>      48,041,008 bytes allocated in the heap
-           7,272 bytes copied during GC
-          36,184 bytes maximum residency (1 sample(s))
-          29,352 bytes maximum slop
-               2 MB total memory in use (0 MB lost due to fragmentation)
+<pre class="none"><code>    48,041,008 bytes allocated in the heap
+         7,272 bytes copied during GC
+        36,184 bytes maximum residency (1 sample(s))
+        29,352 bytes maximum slop
+             2 MB total memory in use (0 MB lost due to fragmentation)
 
-                                     Tot time (elapsed)  Avg pause  Max pause
-  Gen  0        45 colls,     0 par    0.000s   0.000s     0.0000s    0.0001s
-  Gen  1         1 colls,     0 par    0.000s   0.000s     0.0000s    0.0000s
+                                   Tot time (elapsed)  Avg pause  Max pause
+Gen  0        45 colls,     0 par    0.000s   0.000s     0.0000s    0.0001s
+Gen  1         1 colls,     0 par    0.000s   0.000s     0.0000s    0.0000s
 
-  INIT    time    0.000s  (  0.000s elapsed)
-  MUT     time    0.012s  (  0.015s elapsed)
-  GC      time    0.000s  (  0.000s elapsed)
-  EXIT    time    0.000s  (  0.000s elapsed)
-  Total   time    0.012s  (  0.016s elapsed)
+INIT    time    0.000s  (  0.000s elapsed)
+MUT     time    0.012s  (  0.015s elapsed)
+GC      time    0.000s  (  0.000s elapsed)
+EXIT    time    0.000s  (  0.000s elapsed)
+Total   time    0.012s  (  0.016s elapsed)
 
-  %GC     time       0.0%  (1.8% elapsed)
+%GC     time       0.0%  (1.8% elapsed)
 
-  Alloc rate    4,003,417,333 bytes per MUT second
+Alloc rate    4,003,417,333 bytes per MUT second
 
-  Productivity 100.0% of total user, 96.5% of total elapsed</code></pre>
+Productivity 100.0% of total user, 96.5% of total elapsed</code></pre>
 <p>This also affected <code>nfFirst</code>, so you might want to mark that <code>NOINLINE</code> as well to see the difference.</p>
 <h2 id="more-strictness">More Strictness</h2>
 <p>We can remove the <code>func x</code> thunk by applying a bit more strictness. This time we will use <code>seq</code> to make it look a little nicer.</p>
@@ -201,7 +201,7 @@ nfStricter rnf func x n
                   <span class="kw">in</span> rnf y <span class="ot">`seq`</span> nfStricter rnf func x (n<span class="fu">-</span><span class="dv">1</span>)
 <span class="ot">{-# NOINLINE nfStricter #-}</span></code></pre></div>
 <p>If we look at the output, we squashed one issue and created another.</p>
-<pre><code>nfStricter1 =
+<pre class="none"><code>nfStricter1 =
     \r [w_s4z3 w1_s4z4 w2_s4z5 w3_s4z6 void_0E]
         case w3_s4z6 of {
           I# ww1_s4z9 -&gt; $wnfStricter w_s4z3 w1_s4z4 w2_s4z5 ww1_s4z9 void#;
@@ -241,7 +241,7 @@ nfFinal rnf func x <span class="fu">=</span> go
                        <span class="kw">in</span> rnf y <span class="ot">`seq`</span> go (n<span class="fu">-</span><span class="dv">1</span>)
 <span class="ot">{-# NOINLINE nfFinal #-}</span></code></pre></div>
 <p>This results in output that is incredibly close to what we want, but falls just short.</p>
-<pre><code>$wnfFinal =
+<pre class="none"><code>$wnfFinal =
   \r [w_s4zl w1_s4zm w2_s4zn ww_s4zo void_0E]
     case &lt;=# [ww_s4zo 0#] of sat_s4zq {
       __DEFAULT -&gt;
@@ -272,7 +272,7 @@ nfFinal rnf func x <span class="fu">=</span> go
                   };</code></pre>
 <p>This loop performs perfectly well the first time, but then enters a tight counting loop. The <code>let-no-escape</code> ensures our counter stays in a register so it doesn’t have to keep passing it as an argument.</p>
 <p>The only way I found to defeat this under <code>-O2</code> was to use <a href="http://downloads.haskell.org/~ghc/latest/docs/html/users_guide/using-optimisation.html#ghc-flag--ffull-laziness">-fno-full-laziness</a>. This leads to the final output:</p>
-<pre><code>nfFinal1 =
+<pre class="none"><code>nfFinal1 =
   \r [rnf_s4yr func_s4ys x_s4yt eta_s4yu void_0E]
     case eta_s4yu of {
       I# ww1_s4yx -&gt;

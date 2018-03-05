@@ -26,30 +26,29 @@
 <h2 id="time">Time</h2>
 <p>A reasonably large and well-known benchmark is the dictionary comparison from the Haskell performance group on GitHub: <a href="https://github.com/haskell-perf/dictionaries">dictionaries</a>.</p>
 <p>I recently ran it on my computer using <code>ghc-8.2.1</code> and <code>criterion-1.3.0.0</code>, the latest release. There are about 200 benchmarks in the <code>time</code> executable. Using the built-in lower bound of 5 seconds per benchmark, the total run time can be estimated to be 16-17 minutes. When I ran it, I got this:</p>
-<pre><code>  895,066,273,808 bytes allocated in the heap
+<pre class="none"><code>  895,066,273,808 bytes allocated in the heap
 1,472,538,253,152 bytes copied during GC
       306,722,520 bytes maximum residency (75761 sample(s))
        43,151,456 bytes maximum slop
               871 MB total memory in use (0 MB lost due to fragmentation)
 
-                                    Tot time   (elapsed)   Avg pause  Max pause
-  Gen  0     842746 colls,   0 par  431.068s   432.023s    0.0005s    0.5117s
-  Gen  1     75761 colls,    0 par  1465.572s  1467.816s   0.0194s    0.7871s
+                                  Tot time   (elapsed)   Avg pause  Max pause
+Gen  0     842746 colls,   0 par  431.068s   432.023s    0.0005s    0.5117s
+Gen  1     75761 colls,    0 par  1465.572s  1467.816s   0.0194s    0.7871s
 
-  INIT    time    0.000s  (   0.000s elapsed)
-  MUT     time  680.000s  ( 681.203s elapsed)
-  GC      time 1896.640s  (1899.839s elapsed)
-  EXIT    time    0.000s  (   0.005s elapsed)
-  Total   time 2576.640s  (2581.048s elapsed)
+INIT    time    0.000s  (   0.000s elapsed)
+MUT     time  680.000s  ( 681.203s elapsed)
+GC      time 1896.640s  (1899.839s elapsed)
+EXIT    time    0.000s  (   0.005s elapsed)
+Total   time 2576.640s  (2581.048s elapsed)
 
-  %GC     time      73.6%  (73.6% elapsed)
+%GC     time      73.6%  (73.6% elapsed)
 
-  Alloc rate    1,316,273,932 bytes per MUT second
+Alloc rate    1,316,273,932 bytes per MUT second
 
-  Productivity  26.4% of total user, 26.4% of total elapsed
-</code></pre>
+Productivity  26.4% of total user, 26.4% of total elapsed</code></pre>
 <p>The mutator time is around 11 minutes, which is slightly less than estimated. But the garbage collection time is a gob-smacking 30 minutes. With verbosity on, you can see that some benchmarks are taking much longer than their 5 seconds. The worst offenders all follow a similar pattern; they are fast functions with large working sets. (The output has been trimmed for space reasons)</p>
-<pre><code>benchmarking Lookup Int (Randomized)/Data.Map.Lazy:1000000
+<pre class="none"><code>benchmarking Lookup Int (Randomized)/Data.Map.Lazy:1000000
 measurement took 140.5 s
 time                 79.09 ns   (77.11 ns .. 81.08 ns)
 
@@ -73,30 +72,30 @@ benchmarking Lookup Int (Randomized)/Data.IntMap.Strict:1000000
 measurement took 136.8 s
 time                 77.81 ns   (76.39 ns .. 79.77 ns)</code></pre>
 <p>This is what sent me down this road in the first place, so let’s see how it runs after my optimizations.</p>
-<pre><code> 971,043,931,776 bytes allocated in the heap
-  88,686,348,856 bytes copied during GC
-     306,721,800 bytes maximum residency (5293 sample(s))
-      10,359,784 bytes maximum slop
-             872 MB total memory in use (0 MB lost due to fragmentation)
+<pre class="none"><code>971,043,931,776 bytes allocated in the heap
+ 88,686,348,856 bytes copied during GC
+    306,721,800 bytes maximum residency (5293 sample(s))
+     10,359,784 bytes maximum slop
+            872 MB total memory in use (0 MB lost due to fragmentation)
 
-                                     Tot time (elapsed)  Avg pause  Max pause
-  Gen  0     983696 colls,     0 par   106.552s  107.824s     0.0001s    0.8340s
-  Gen  1      5293 colls,     0 par    1.784s   1.800s     0.0003s    0.0328s
+                                   Tot time (elapsed)  Avg pause  Max pause
+Gen  0     983696 colls,     0 par   106.552s  107.824s     0.0001s    0.8340s
+Gen  1      5293 colls,     0 par    1.784s   1.800s     0.0003s    0.0328s
 
-  INIT    time    0.000s  (  0.000s elapsed)
-  MUT     time  949.712s  (951.470s elapsed)
-  GC      time  108.336s  (109.624s elapsed)
-  EXIT    time    0.000s  (  0.006s elapsed)
-  Total   time  1058.048s  (1061.100s elapsed)
+INIT    time    0.000s  (  0.000s elapsed)
+MUT     time  949.712s  (951.470s elapsed)
+GC      time  108.336s  (109.624s elapsed)
+EXIT    time    0.000s  (  0.006s elapsed)
+Total   time  1058.048s  (1061.100s elapsed)
 
-  %GC     time      10.2%  (10.3% elapsed)
+%GC     time      10.2%  (10.3% elapsed)
 
-  Alloc rate    1,022,461,474 bytes per MUT second
+Alloc rate    1,022,461,474 bytes per MUT second
 
-  Productivity  89.8% of total user, 89.7% of total elapsed</code></pre>
+Productivity  89.8% of total user, 89.7% of total elapsed</code></pre>
 <p>Much better. Our mutator time is now up to just under 16 minutes, and our gc time is down to 2 minutes. Productivity is now at 90% instead of 25%. Finally, my computer did not have to copy 1.4TB during GC, which is a win.</p>
 <p>Just to be sure, our results are still in line with the previous ones.</p>
-<pre><code>benchmarking Lookup Int (Randomized)/Data.Map.Lazy:1000000
+<pre class="none"><code>benchmarking Lookup Int (Randomized)/Data.Map.Lazy:1000000
 time                 79.75 ns   (78.30 ns .. 81.66 ns)
 
 benchmarking Lookup Int (Randomized)/Data.Map.Strict:1000000

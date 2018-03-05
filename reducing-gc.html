@@ -31,7 +31,7 @@ longGc <span class="fu">=</span>
            , bench <span class="st">&quot;large-slow&quot;</span> <span class="fu">$</span> whnf id large
            ]</code></pre></div>
 <p>Theoretically these functions should be pretty much the same. The only difference is the amount of live memory when running them. The benchmark looked like this though:</p>
-<pre><code>benchmarking small-fast
+<pre class="none"><code>benchmarking small-fast
 measurement took 5.03 s
 ...
 
@@ -44,19 +44,19 @@ measurement took 69.20 s
 
  Total   time   75.000s ( 75.117s elapsed)</code></pre>
 <p>So we need to somewhow reduce the amount of time spent collecting the first generation. Thinking back to our <code>measure</code> loop, this is somewhat self-inflicted.</p>
-<pre><code>measure func iters =
-    -- See /Reducing GC/ Below
+<div class="sourceCode"><pre class="sourceCode haskell"><code class="sourceCode haskell">measure func iters <span class="fu">=</span>
+    <span class="co">-- See /Reducing GC/ Below</span>
     performGC
-    startStats &lt;- getRTSStats
-    startTime &lt;- getTime
+    startStats <span class="ot">&lt;-</span> getRTSStats
+    startTime <span class="ot">&lt;-</span> getTime
     runRepeatedly func iters
-    endTime &lt;- getTime
+    endTime <span class="ot">&lt;-</span> getTime
     performGC
-    endStats &lt;- getRTSStats
+    endStats <span class="ot">&lt;-</span> getRTSStats
 
-    -- Measure returns a /Measured/ record,
-    -- and time at end of measurement.
-    return (mkMeasured endStats startStats, endTime)</code></pre>
+    <span class="co">-- Measure returns a /Measured/ record,</span>
+    <span class="co">-- and time at end of measurement.</span>
+    return (mkMeasured endStats startStats, endTime)</code></pre></div>
 <p>We have two calls to <code>performGC</code>, which is a manual way of calling the garbage collector. There were also two calls to <code>performGC</code> in the parent function, meaning we were paying four times for every sample taken. The parent ones can be removed almost immediately. They were just copied to the new <code>measure</code> location when they should have been permanently moved.</p>
 <p>That cuts the time in half, but we still have the two pesky ones in <code>measure</code>. The issue is that sometimes you need to work on a large data structure, like the <code>Map</code> above.</p>
 <h2 id="a-quick-primer-on-the-garbage-collector">A Quick Primer on the Garbage Collector</h2>
@@ -65,6 +65,7 @@ measurement took 69.20 s
 <p>It works on the hypothesis that most memory does not live very long, which is often a successful model for functional languages. When you try to allocate some new memory, it looks in Gen 0 for space. If there isn’t any, it goes through all of Gen 0, kicking out dead blocks and moving live data to Gen 1. That is a “minor” garbage collection.</p>
 <p>If it tries to move data to Gen 1 and there is no space, it performs a similar collection. However, instead of moving live data up another generation, it allocates twice the current size and copies everything over. This space grows depending on the program and can become quite costly to collect. This is a “major” collection.</p>
 <p><code>performGC</code> is asking for a major collection. We can ask for just a minor collection with <code>performMinorGC</code>.</p>
+<p>Two wonderful writeups can be found <a href="http://blog.ezyang.com/2011/04/how-the-grinch-stole-the-haskell-heap/">here</a> and <a href="https://stackoverflow.com/a/3172704/9362960">here</a> if you are looking for more information.</p>
 <h2 id="getting-stats">Getting Stats</h2>
 <p>As I just hinted, we want to move to <code>performMinorGC</code>, but the question is, why are we calling the gc here? Each time the garbage collector runs, it updates stats about the program. Fields like <code>max live bytes</code> and <code>allocated bytes</code> are only accurate immediately after a garbage collection.</p>
 <p>After a bit of reading in GHC’s Runtime System (which you can follow <a href="https://github.com/bos/criterion/pull/187#discussion_r170491797">here</a>), I was able to confirm that these stats are updated in both major and minor collections. So the stats reported are at least up to date.</p>
