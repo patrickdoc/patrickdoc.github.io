@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html lang="en-US">
+<head>
+  <meta charset="utf-8">
+  <meta name="generator" content="pandoc">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes">
+  <meta name="author" content="Patrick Dougherty">
+  <meta name="Description" content="Integrating the heap-view library into GHC">
+  <title>Heap View</title>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Lora:400,700%7cInconsolata:400,700">
+  <link rel="stylesheet" href="/site.mini.css">
+</head>
+<body>
+
+  <header>
+    <div class="links">
+      <a href="/index.html">Home</a>
+      <a></a>
+      <a href="/about.html">About</a>
+    </div>
+  </header>
+
+  <section>
+    <article>
+<h1 id="adding-heap-view-to-ghc">Adding Heap View to GHC</h1>
+<p>While working on my previous <a href="criterion.html">Criterion</a> project, I ran into the question, how big is a thunk? I was attempting to manually verify allocation statistics, but did not know how to count unevaluated expressions. Haskell’s automatic memory management means that most people don’t need to think about these issues. However, once you start trying to tune performance, memory problems start sneaking in.</p>
+<p>Before working through the actual GHC source, all of my knowledge came from two wonderful posts. First, <a href="http://blog.johantibell.com/2011/06/computing-size-of-hashmap.html">this</a> blog post by Johan Tibell walks through a general case of computing the size of a datatype. His rule-of-thumb is both easy and accurate. The <a href="https://stackoverflow.com/questions/13982863/how-much-memory-does-a-thunk-use/13987932#13987932">second</a> took a bit more looking, but helped me answer my thunk question. It also introduced me to the <a href="http://hackage.haskell.org/package/ghc-heap-view"><code>heap-view</code></a> package. A few days later on IRC, someone expressed that they hoped <a href="https://phabricator.haskell.org/D3055">D3055</a> would get finished. So my next project was decided.</p>
+<p>To give credit where credit is due, most of this code traces back to a 2006 Summer of Code project attributed to José Iborra López <a href="https://ghc.haskell.org/trac/summer-of-code/wiki/SoC2006">here</a>. The project was the GHCi debugger. A big portion of integrating <code>heap-view</code> into GHC was pulling the duplicated code out of the existing source. There are a number of different rough representations of the heap in the Haskell source of GHC, so perhaps further work could be done to unify access to the heap.</p>
+<h2 id="the-haskell-heap">The Haskell Heap</h2>
+<p>Having covered the background, let’s turn to what <code>heap-view</code> actually does. In short, it shows you what a given value looks like <em>at this moment</em>. Haskell’s non-strict evaluation means that GHC get to decide what order it wants to do work in. While you might think <code>x = 2 + 1</code> assigns <code>3</code> to x, in fact, you might just get a promise that <code>x</code> will be <code>3</code> when you try to use it. That promise is a thunk, some unevaluated expression that holds information, but hasn’t yet done anything with it.</p>
+<p>I’m going to work through an example where this matters and demonstrate how <code>heap-view</code> can help, but first, you’ll need a primer on the structure of heap objects. If you are familiar with Haskell’s heap, feel free to jump to the <a href="heap-view-example.html">example</a>.</p>
+<p>The best technical reference for this material is <a href="https://ghc.haskell.org/trac/ghc/wiki/Commentary/Rts/Storage/HeapObjects">here</a>, in the GHC Commentary. I’m going to gloss over the <code>TABLES_NEXT_TO_CODE</code> and <code>PROFILING</code> differences because they are not particularly pertinent. This will mostly be a compressed version of the information on that page.</p>
+<p>Let’s start with the <code>Int</code> type. It may be a little new to you, but there’s no time like the present!</p>
+<pre><code>data Int = I# Int#</code></pre>
+<p>This type works similarly to any other type you would make. It is given a name <code>Int</code>, and has a constructor <code>I#</code>. The <code>#</code> is a convention that indicates this is lower-level than most code. Most of the time in Haskell, you work with objects that are “boxed”. That is, you really have a pointer to an object, not the object itself. <code>Int</code> is special because it is built from an “unboxed” value, of type <code>Int#</code>. <code>Int#</code> is built into GHC because it is simply a C int. Just the plain bytes, not an address.</p>
+<p>Looking at the wiki page linked above, if scroll down to the “Data Constructors” heading, you will see the layout of a data constructor on the heap. It looks something like this:</p>
+<pre><code>Constructor Closure
++---------+----------+--------------+
+| *Header | Pointers | Non-pointers |
++---------+----------+--------------+</code></pre>
+<p>That is, a single pointer to an InfoTable, which we will get to, an array of pointers, and an array of non-pointers. In the case of our <code>Int</code> type, that would be <code>0</code> pointers and a single non-pointer holding our <code>Int#</code>. <code>I# 42#</code> (the <code>#</code> after <code>42</code> gets us the plain, non-pointer C int) of type <code>Int</code> would look like so:</p>
+<pre><code>+---------++----+
+| *Header || 42 |
++---------++----+
+
+That would be: sizeof(void *) + sizeof(int) if you are calculating size.</code></pre>
+<p>InfoTables are dependent on the type of value being stored. They are all basically the same size, but read each field differently. Things are packed tightly here, so we are going to look at the first three HalfWords. On 64-bit platforms that would be <code>3 * 4 = 12</code> bytes total.</p>
+<pre><code>InfoTable (read like a constructor&#39;s)
++------+-------+------+
+| ptrs | nptrs | type |
++------+-------+------+</code></pre>
+<p>These fields are the number of pointers in the closure, the number of non-pointers in the closure, and the type of the closure. For our <code>Int</code>, that would be:</p>
+<pre><code>+---+---+------------+
+| 0 | 1 | CONSTR_0_1 |
++---+---+------------+</code></pre>
+<p>Constructor types encode some common layouts to make garbage collection faster. So now that we know roughly what it should look like, let’s ask heap-view.</p>
+<div class="sourceCode"><pre class="sourceCode haskell"><code class="sourceCode haskell"><span class="kw">import </span><span class="dt">GHC.Exts.Heap</span>
+
+main <span class="fu">=</span> <span class="kw">do</span>
+    c <span class="ot">&lt;-</span> getClosureData (<span class="dv">42</span><span class="ot"> ::</span> <span class="dt">Int</span>)
+    print c</code></pre></div>
+<p>When run (edited to look nicer):</p>
+<pre><code>ConstrClosure
+    { info = StgInfoTable {..., ptrs = 0, nptrs = 1, tipe = CONSTR_0_1, ...}
+    , ptrArgs = [], dataArgs = [42]
+    , pkg = &quot;ghc-prim&quot;, modl = &quot;GHC.Types&quot;, name = &quot;I#&quot;
+    }</code></pre>
+<p>We even get information about where the constructor comes from which is great. And our theory lines up with reality, which is always a relief. Next time, I’ll demonstrate a practical application of <code>heap-view</code>.</p>
+      <a href="heap-view-example.html" id="small-forward">Next</a>
+    </article>
+    <a href="heap-view-example.html" id="big-forward">❯</a>
+  </section>
+
+  <footer>
+    <hr>
+    <div class="links">
+      <p>© 2018 Patrick Dougherty</p>
+      <a></a>
+      <a href="https://github.com/patrickdoc/patrickdoc.github.io">source</a>
+      <a href="mailto:patrick.doc@port67.org">patrick.doc@port67.org</a>
+    </div>
+  </footer>
+
+</body>
+</html>

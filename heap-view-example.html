@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html lang="en-US">
+<head>
+  <meta charset="utf-8">
+  <meta name="generator" content="pandoc">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes">
+  <meta name="author" content="Patrick Dougherty">
+  <meta name="Description" content="Using the Heap View library">
+  <title>Heap View Example</title>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Lora:400,700%7cInconsolata:400,700">
+  <link rel="stylesheet" href="/site.mini.css">
+</head>
+<body>
+
+  <header>
+    <div class="links">
+      <a href="/index.html">Home</a>
+      <a></a>
+      <a href="/about.html">About</a>
+    </div>
+  </header>
+
+  <section>
+    <article>
+<h1 id="using-heap-view">Using Heap View</h1>
+<p>There are some patterns in Haskell code that often lead to space leaks. Here is one you might run into very quickly when learning Haskell.</p>
+<div class="sourceCode"><pre class="sourceCode haskell"><code class="sourceCode haskell"><span class="co">-- | Sum the numbers from 1 to i</span>
+<span class="ot">sumRange ::</span> <span class="dt">Int</span> <span class="ot">-&gt;</span> <span class="dt">Int</span> <span class="ot">-&gt;</span> <span class="dt">IO</span> <span class="dt">Int</span>
+sumRange acc <span class="dv">0</span> <span class="fu">=</span> return acc
+sumRange acc i <span class="fu">=</span> sumRange (acc <span class="fu">+</span> i) (i <span class="fu">-</span> <span class="dv">1</span>)</code></pre></div>
+<p>(I’ve made the return type <code>IO Int</code> so that I can use <code>getClosureData</code>. You could theoretically wrap it in an <code>unsafePerformIO</code> like the <code>trace</code> function, but for now I’ll just do this.)</p>
+<p>Running <code>sumRange 0 1000000</code> on my computer (with a mostly unoptimized GHC), I get these performance stats:</p>
+<pre class="none"><code>$ ./test +RTS -s
+    121,344,040 bytes allocated in the heap
+     57,823,520 bytes maximum residency
+
+  Total time    0.419s
+
+  Productivity  34.8% of total elapsed</code></pre>
+<p>Looking at our program, these numbers are not good. We shouldn’t be building any big structures of data. In fact, we should have roughly two <code>Int</code>s worth of memory at any given time. One for <code>acc</code>, one for <code>i</code>.</p>
+<p>At this point, we have a very specific problem: there is too much data being held on to. The “maximum residency” tells us that the garbage collector found 58MB of live data on the heap when it ran. That doesn’t seem right. If we lower <code>i</code> to <code>100</code>, then only <code>44KB</code> are used. So our program memory grows with <code>i</code> even though it should be roughly constant.</p>
+<p>We’ve profiled and found a memory leak, so it is time to get rid of it. At this point, there are basically two recommendations. One, look at core. You can dump the intermediate stages of GHC compilation, which look a little closer to imperative programs. This is often useful, but somewhat heavy-handed. It also can become quite hard to look through in larger projects. Two, add strictness annotations everywhere and hope for the best. This is in fact the solution to our problem, but it would be nice to have a target for our !-gun. In this case, there are only two options (<code>!acc</code> and <code>!i</code>) so we could just compile-profile-loop until we found the solution.</p>
+<p>With <code>heap-view</code> however, we have another option. Let’s look at the values on the heap during each loop. For the sake of screen space, we’ll limit the loop to only 3 iterations. Here is the updated code and output, again trimmed for clarity:</p>
+<div class="sourceCode"><pre class="sourceCode haskell"><code class="sourceCode haskell"><span class="kw">import </span><span class="dt">GHC.Exts.Heap</span>
+
+<span class="co">-- | Sum the numbers from 1 to i</span>
+<span class="ot">sumRange ::</span> <span class="dt">Int</span> <span class="ot">-&gt;</span> <span class="dt">Int</span> <span class="ot">-&gt;</span> <span class="dt">IO</span> <span class="dt">Int</span>
+sumRange acc <span class="dv">0</span> <span class="fu">=</span> return acc
+sumRange acc i <span class="fu">=</span> <span class="kw">do</span>
+    ca <span class="ot">&lt;-</span> getClosureData acc
+    putStr <span class="st">&quot;acc: &quot;</span>
+    print ca
+    ci <span class="ot">&lt;-</span> getClosureData i
+    putStr <span class="st">&quot;  i: &quot;</span>
+    print ci
+    sumRange (acc <span class="fu">+</span> i) (i <span class="fu">-</span> <span class="dv">1</span>)</code></pre></div>
+<pre class="none"><code>$ ./test
+  i: ConstrClosure { info = StgInfoTable {tipe = CONSTR_0_1}
+                   , ptrArgs = [], dataArgs = [3], name = &quot;I#&quot;}
+acc: ConstrClosure { info = StgInfoTable {tipe = CONSTR_0_1}
+                   , ptrArgs = [], dataArgs = [0], name = &quot;I#&quot;}
+  i: ConstrClosure { info = StgInfoTable {tipe = CONSTR_0_1}
+                   , ptrArgs = [], dataArgs = [2], name = &quot;I#&quot;}
+acc: ThunkClosure  { info = StgInfoTable {tipe = THUNK_2_0 }
+                   , ptrArgs = [0x00c66518/1,0x00c66548/1], dataArgs = []}
+  i: ConstrClosure { info = StgInfoTable {tipe = CONSTR_0_1}
+                   , ptrArgs = [], dataArgs = [1], name = &quot;I#&quot;}
+acc: ThunkClosure  { info = StgInfoTable {tipe = THUNK_2_0 }
+                   , ptrArgs = [0x00420000fe50,0x00420000fe70/1], dataArgs = []}</code></pre>
+<p>If we look at <code>i</code>, we see that at every iteration of the loop, it is just our <code>Int</code> constructor from last time. So <code>i</code> stays constant in space usage. Looking at <code>acc</code> though, it is a thunk. Every time we go through the loop, we are simply adding another thunk to the chain. In memory, <code>acc</code> looks something like this (assuming we start with <code>acc == 0</code>):</p>
+<pre><code>+---+---------+---+
+| + | old_acc | 0 |
++---+---------+---+
+         | +---+-----------+---+
+         -&gt;| + | older_acc | 1 |
+           +---+-----------+---+
+                    |
+                   ...
+                    | +---+---+---+
+                    -&gt;| + | 0 | i |
+                      +---+---+---+</code></pre>
+<p>Or, in a perhaps more understandable format:</p>
+<pre class="none"><code>(...(((0 + i) + (i-1)) + (i-2)) + ... + 1)</code></pre>
+<p>It seems like making <code>acc</code> strict should solve our problem.</p>
+<div class="sourceCode"><pre class="sourceCode haskell"><code class="sourceCode haskell"><span class="ot">{-# LANGUAGE BangPatterns #-}</span>
+
+<span class="co">-- | Sum the numbers from 1 to i</span>
+<span class="ot">sumRange ::</span> <span class="dt">Int</span> <span class="ot">-&gt;</span> <span class="dt">Int</span> <span class="ot">-&gt;</span> <span class="dt">IO</span> <span class="dt">Int</span>
+sumRange <span class="fu">!</span>acc <span class="dv">0</span> <span class="fu">=</span> return acc
+sumRange acc i <span class="fu">=</span> sumRange (acc <span class="fu">+</span> i) (i <span class="fu">-</span> <span class="dv">1</span>)</code></pre></div>
+<p>Running our program with 1 million again, our profile looks much better.</p>
+<pre class="none"><code>$ ./test +RTS -s
+     88,051,752 bytes allocated in the heap
+         44,576 bytes maximum residency
+
+  Total time    0.141s
+
+  Productivity  99.3% of total elapsed</code></pre>
+<p>If you include the closure data output, you’ll see that both <code>i</code> and <code>acc</code> are now always <code>Int</code>s. A single <code>!</code> made our code four times faster! This is definitely not an ideal situation, but it is the state of things right now.</p>
+<p>For me, <code>heap-view</code> sits at a nice place between guessing and reading core. If you have a hypothesis, this makes it reasonable to test it without changing build flags. More than anything, I think it removes a lot of the guess-work from exploring Haskell’s evaluation. You can crawl all over the heap if you want to. I hope people try it out and find interesting use-cases for it.</p>
+      <a href="heap-view.html" id="small-back">Previous</a>
+    </article>
+    <a href="heap-view.html" id="big-back">❮</a>
+  </section>
+
+  <footer>
+    <hr>
+    <div class="links">
+      <p>© 2018 Patrick Dougherty</p>
+      <a></a>
+      <a href="https://github.com/patrickdoc/patrickdoc.github.io">source</a>
+      <a href="mailto:patrick.doc@port67.org">patrick.doc@port67.org</a>
+    </div>
+  </footer>
+
+</body>
+</html>
