@@ -68,7 +68,7 @@ sumRange acc i <span class="fu">=</span> <span class="kw">do</span>
 <span class="ex">acc</span>: ThunkClosure  { info = StgInfoTable {tipe = THUNK_2_0 }
                    , <span class="ex">ptrArgs</span> = [0x00420000fe50,0x00420000fe70/1], dataArgs = []}</code></pre></div>
 <p>If we look at <code>i</code>, we see that at every iteration of the loop, it is just our <code>Int</code> constructor from last time. So <code>i</code> stays constant in space usage. Looking at <code>acc</code> though, it is a thunk. Every time we go through the loop, we are simply adding another thunk to the chain. In memory, <code>acc</code> looks something like this (assuming we start with <code>acc == 0</code>):</p>
-<pre><code>+---+---------+---+
+<pre class="none"><code>+---+---------+---+
 | + | old_acc | 0 |
 +---+---------+---+
          | +---+-----------+---+
@@ -80,7 +80,7 @@ sumRange acc i <span class="fu">=</span> <span class="kw">do</span>
                     -&gt;| + | 0 | i |
                       +---+---+---+</code></pre>
 <p>Or, in a perhaps more understandable format:</p>
-<pre class="none"><code>(...(((0 + i) + (i-1)) + (i-2)) + ... + 1)</code></pre>
+<pre><code>(...(((0 + i) + (i-1)) + (i-2)) + ... + 1)</code></pre>
 <p>It seems like making <code>acc</code> strict should solve our problem.</p>
 <div class="sourceCode"><pre class="sourceCode haskell"><code class="sourceCode haskell"><span class="ot">{-# LANGUAGE BangPatterns #-}</span>
 

@@ -31,25 +31,25 @@
 <p>I’m going to work through an example where this matters and demonstrate how <code>heap-view</code> can help, but first, you’ll need a primer on the structure of heap objects. If you are familiar with Haskell’s heap, feel free to jump to the <a href="heap-view-example.html">example</a>.</p>
 <p>The best technical reference for this material is <a href="https://ghc.haskell.org/trac/ghc/wiki/Commentary/Rts/Storage/HeapObjects">here</a>, in the GHC Commentary. I’m going to gloss over the <code>TABLES_NEXT_TO_CODE</code> and <code>PROFILING</code> differences because they are not particularly pertinent. This will mostly be a compressed version of the information on that page.</p>
 <p>Let’s start with the <code>Int</code> type. It may be a little new to you, but there’s no time like the present!</p>
-<pre class="none"><code>data Int = I# Int#</code></pre>
+<pre><code>data Int = I# Int#</code></pre>
 <p>This type works similarly to any other type you would make. It is given a name <code>Int</code>, and has a constructor <code>I#</code>. The <code>#</code> is a convention that indicates this is lower-level than most code. Typically in Haskell, you work with objects that are “boxed”. That is, you really have a pointer to an object, not the object itself. <code>Int</code> is special because it is built from an “unboxed” value, of type <code>Int#</code>. <code>Int#</code> is built into GHC because it is simply a C int. Just the plain bytes, not an address.</p>
 <p>Looking at the wiki page linked above, if scroll down to the “Data Constructors” heading, you will see the layout of a data constructor on the heap. It looks something like this:</p>
-<pre class="none"><code>Constructor Closure
+<pre><code>Constructor Closure
 +---------+----------+--------------+
 | *Header | Pointers | Non-pointers |
 +---------+----------+--------------+</code></pre>
 <p>That is, a single pointer to an InfoTable, which we will get to, an array of pointers, and an array of non-pointers. In the case of our <code>Int</code> type, that would be 0 pointers and a single non-pointer holding our <code>Int#</code>. <code>I# 42#</code> (the <code>#</code> after 42 gets us the plain, non-pointer C int) of type <code>Int</code> would look like so:</p>
-<pre class="none"><code>+---------++----+
+<pre><code>+---------++----+
 | *Header || 42 |
 +---------++----+</code></pre>
 <p>That would be: <code>sizeof(void *) + sizeof(int)</code> if you are calculating size.</p>
 <p>InfoTables are dependent on the type of value being stored. They are all basically the same size, but read each field differently. Things are packed tightly here, so we are going to look at the first three HalfWords. On 64-bit platforms that would be <code>3 * 4 = 12</code> bytes total.</p>
-<pre class="none"><code>InfoTable (read like a constructor&#39;s)
+<pre><code>InfoTable (read like a constructor&#39;s)
 +------+-------+------+
 | ptrs | nptrs | type |
 +------+-------+------+</code></pre>
 <p>These fields are the number of pointers in the closure, the number of non-pointers in the closure, and the type of the closure. For our <code>Int</code>, that would be:</p>
-<pre class="none"><code>+---+---+------------+
+<pre><code>+---+---+------------+
 | 0 | 1 | CONSTR_0_1 |
 +---+---+------------+</code></pre>
 <p>Constructor types encode some common layouts to make garbage collection faster. So now that we know roughly what it should look like, let’s ask heap-view.</p>
@@ -59,7 +59,7 @@ main <span class="fu">=</span> <span class="kw">do</span>
     c <span class="ot">&lt;-</span> getClosureData (<span class="dv">42</span><span class="ot"> ::</span> <span class="dt">Int</span>)
     print c</code></pre></div>
 <p>When run (edited to look nicer):</p>
-<pre class="none"><code>ConstrClosure
+<pre><code>ConstrClosure
     { info = StgInfoTable {..., ptrs = 0, nptrs = 1, tipe = CONSTR_0_1, ...}
     , ptrArgs = [], dataArgs = [42]
     , pkg = &quot;ghc-prim&quot;, modl = &quot;GHC.Types&quot;, name = &quot;I#&quot;
