@@ -78,7 +78,7 @@ nfFirst =
         nfFirst1 eta_B5 eta_B4 eta_B3 eta_B2 void#;</code></pre>
 <p>Our function <code>nfFirst</code> is passed four variables and the IO token. You can mostly ignore the IO related stuff, but <a href="http://blog.ezyang.com/2011/05/unraveling-the-mystery-of-the-io-monad/">this</a> post has some good information if you haven’t seen it before. We are benchmarking pure functions, so do not actually use the IO state. The <code>eta</code>s are, in order, <code>rnf func x n</code>.</p>
 <p><code>nfFirst</code> passes its arguments on to <code>nfFirst1</code>, which unboxes <code>n</code>. Finally, <code>nfFirst1</code> calls <code>$wnfFirst</code> which does the work of the function. Unfortunately, <code>nfFirst1</code> drops <code>rnf func x</code>. Only the <code>Int</code> is used by <code>$wnfFirst</code>. This is bad news because it means our function can not possibly be evaluating <code>func x</code>. Just to confirm, we can look at the body of the worker loop.</p>
-<p>First, it checks if <code>n</code> is less than or equal to 0. Then it converts the result to a Bool. Finally, it either subtracts 1 from <code>n</code> and loops, or terminates.</p>
+<p>First, it checks if <code>n</code> is less than or equal to 0. Then it converts the result to a <code>Bool</code>. Finally, it either subtracts 1 from <code>n</code> and loops, or terminates.</p>
 <p>GHC foiled our first attempt. It realized that <code>y</code> was never used, so removed it. We will need to convince GHC that <code>y</code> should be evaluated even though we don’t use it.</p>
 <p>If we run <code>Nf</code>, we can double check that nothing is happening. This is the same result as <code>main = return ()</code>.</p>
 <pre class="none"><code>        41,008 bytes allocated in the heap
@@ -195,7 +195,7 @@ Productivity 100.0% of total user, 96.5% of total elapsed</code></pre>
 <h2 id="more-strictness">More Strictness</h2>
 <p>We can remove the <code>func x</code> thunk by applying a bit more strictness. This time we will use <code>seq</code> to make it look a little nicer.</p>
 <div class="sourceCode"><pre class="sourceCode haskell"><code class="sourceCode haskell"><span class="ot">nfStricter ::</span> (b <span class="ot">-&gt;</span> ()) <span class="ot">-&gt;</span> (a <span class="ot">-&gt;</span> b) <span class="ot">-&gt;</span> a <span class="ot">-&gt;</span> <span class="dt">Int</span> <span class="ot">-&gt;</span> <span class="dt">IO</span> ()
-nfStricter rnf func x n 
+nfStricter rnf func x n
     <span class="fu">|</span> n <span class="fu">&lt;=</span> <span class="dv">0</span>    <span class="fu">=</span> return ()
     <span class="fu">|</span> otherwise <span class="fu">=</span> <span class="kw">let</span> <span class="fu">!</span>y <span class="fu">=</span> func x
                   <span class="kw">in</span> rnf y <span class="ot">`seq`</span> nfStricter rnf func x (n<span class="fu">-</span><span class="dv">1</span>)
@@ -236,7 +236,7 @@ $wnfStricter =
 <div class="sourceCode"><pre class="sourceCode haskell"><code class="sourceCode haskell"><span class="ot">nfFinal ::</span> (b <span class="ot">-&gt;</span> ()) <span class="ot">-&gt;</span> (a <span class="ot">-&gt;</span> b) <span class="ot">-&gt;</span> a <span class="ot">-&gt;</span> (<span class="dt">Int</span> <span class="ot">-&gt;</span> <span class="dt">IO</span> ())
 nfFinal rnf func x <span class="fu">=</span> go
   <span class="kw">where</span>
-    go n <span class="fu">|</span> n <span class="fu">&lt;=</span> <span class="dv">0</span>    <span class="fu">=</span> return () 
+    go n <span class="fu">|</span> n <span class="fu">&lt;=</span> <span class="dv">0</span>    <span class="fu">=</span> return ()
          <span class="fu">|</span> otherwise <span class="fu">=</span> <span class="kw">let</span> <span class="fu">!</span>y <span class="fu">=</span> func x
                        <span class="kw">in</span> rnf y <span class="ot">`seq`</span> go (n<span class="fu">-</span><span class="dv">1</span>)
 <span class="ot">{-# NOINLINE nfFinal #-}</span></code></pre></div>
