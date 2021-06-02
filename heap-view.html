@@ -53,11 +53,11 @@
 | 0 | 1 | CONSTR_0_1 |
 +---+---+------------+</code></pre>
 <p>Constructor types encode some common layouts to make garbage collection faster. So now that we know roughly what it should look like, let’s ask heap-view.</p>
-<div class="sourceCode"><pre class="sourceCode haskell"><code class="sourceCode haskell"><span class="kw">import </span><span class="dt">GHC.Exts.Heap</span>
-
-main <span class="fu">=</span> <span class="kw">do</span>
-    c <span class="ot">&lt;-</span> getClosureData (<span class="dv">42</span><span class="ot"> ::</span> <span class="dt">Int</span>)
-    print c</code></pre></div>
+<div class="sourceCode" id="cb6"><pre class="sourceCode haskell"><code class="sourceCode haskell"><a class="sourceLine" id="cb6-1" title="1"><span class="kw">import</span> <span class="dt">GHC.Exts.Heap</span></a>
+<a class="sourceLine" id="cb6-2" title="2"></a>
+<a class="sourceLine" id="cb6-3" title="3">main <span class="fu">=</span> <span class="kw">do</span></a>
+<a class="sourceLine" id="cb6-4" title="4">    c <span class="ot">&lt;-</span> getClosureData (<span class="dv">42</span><span class="ot"> ::</span> <span class="dt">Int</span>)</a>
+<a class="sourceLine" id="cb6-5" title="5">    <span class="fu">print</span> c</a></code></pre></div>
 <p>When run (edited to look nicer):</p>
 <pre class="none"><code>ConstrClosure
     { info = StgInfoTable {..., ptrs = 0, nptrs = 1, tipe = CONSTR_0_1, ...}

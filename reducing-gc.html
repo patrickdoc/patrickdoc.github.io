@@ -23,13 +23,13 @@
     <article>
 <h1 id="reducing-the-impact-of-garbage-collection">Reducing the Impact of Garbage Collection</h1>
 <p>Although the allocation change decreased the amount of memory being created, it did not help with the run time/copying problem. This benchmark in particular emphasized the issue.</p>
-<div class="sourceCode"><pre class="sourceCode haskell"><code class="sourceCode haskell"><span class="ot">longGc ::</span> [<span class="dt">Benchmark</span>]
-longGc <span class="fu">=</span>
-    <span class="kw">let</span> small <span class="fu">=</span> Map.fromList [ (k, v) <span class="fu">|</span> k <span class="ot">&lt;-</span> [<span class="dv">1</span><span class="fu">..</span><span class="dv">100</span>], v <span class="ot">&lt;-</span> [<span class="st">&quot;data&quot;</span>] ]
-        large <span class="fu">=</span> Map.fromList [ (k, v) <span class="fu">|</span> k <span class="ot">&lt;-</span> [<span class="dv">1</span><span class="fu">..</span><span class="dv">1000000</span>], v <span class="ot">&lt;-</span> [<span class="st">&quot;data&quot;</span>] ]
-        <span class="kw">in</span> [ bench <span class="st">&quot;small-fast&quot;</span> <span class="fu">$</span> whnf id small
-           , bench <span class="st">&quot;large-slow&quot;</span> <span class="fu">$</span> whnf id large
-           ]</code></pre></div>
+<div class="sourceCode" id="cb1"><pre class="sourceCode haskell"><code class="sourceCode haskell"><a class="sourceLine" id="cb1-1" title="1"><span class="ot">longGc ::</span> [<span class="dt">Benchmark</span>]</a>
+<a class="sourceLine" id="cb1-2" title="2">longGc <span class="fu">=</span></a>
+<a class="sourceLine" id="cb1-3" title="3">    <span class="kw">let</span> small <span class="fu">=</span> Map.fromList [ (k, v) <span class="fu">|</span> k <span class="ot">&lt;-</span> [<span class="dv">1</span><span class="fu">..</span><span class="dv">100</span>], v <span class="ot">&lt;-</span> [<span class="st">&quot;data&quot;</span>] ]</a>
+<a class="sourceLine" id="cb1-4" title="4">        large <span class="fu">=</span> Map.fromList [ (k, v) <span class="fu">|</span> k <span class="ot">&lt;-</span> [<span class="dv">1</span><span class="fu">..</span><span class="dv">1000000</span>], v <span class="ot">&lt;-</span> [<span class="st">&quot;data&quot;</span>] ]</a>
+<a class="sourceLine" id="cb1-5" title="5">        <span class="kw">in</span> [ bench <span class="st">&quot;small-fast&quot;</span> <span class="fu">$</span> whnf <span class="fu">id</span> small</a>
+<a class="sourceLine" id="cb1-6" title="6">           , bench <span class="st">&quot;large-slow&quot;</span> <span class="fu">$</span> whnf <span class="fu">id</span> large</a>
+<a class="sourceLine" id="cb1-7" title="7">           ]</a></code></pre></div>
 <p>Theoretically these functions should be pretty much the same. The only difference is the amount of live memory when running them. The benchmark looked like this though:</p>
 <pre><code>benchmarking small-fast
 measurement took 5.03 s
@@ -44,19 +44,19 @@ measurement took 69.20 s
 
  Total   time   75.000s ( 75.117s elapsed)</code></pre>
 <p>So we need to somewhow reduce the amount of time spent collecting the first generation. Thinking back to our <code>measure</code> loop, this is somewhat self-inflicted.</p>
-<div class="sourceCode"><pre class="sourceCode haskell"><code class="sourceCode haskell">measure func iters <span class="fu">=</span>
-    <span class="co">-- See /Reducing GC/ Below</span>
-    performGC
-    startStats <span class="ot">&lt;-</span> getRTSStats
-    startTime <span class="ot">&lt;-</span> getTime
-    runRepeatedly func iters
-    endTime <span class="ot">&lt;-</span> getTime
-    performGC
-    endStats <span class="ot">&lt;-</span> getRTSStats
-
-    <span class="co">-- Measure returns a /Measured/ record,</span>
-    <span class="co">-- and time at end of measurement.</span>
-    return (mkMeasured endStats startStats, endTime)</code></pre></div>
+<div class="sourceCode" id="cb3"><pre class="sourceCode haskell"><code class="sourceCode haskell"><a class="sourceLine" id="cb3-1" title="1">measure func iters <span class="fu">=</span></a>
+<a class="sourceLine" id="cb3-2" title="2">    <span class="co">-- See /Reducing GC/ Below</span></a>
+<a class="sourceLine" id="cb3-3" title="3">    performGC</a>
+<a class="sourceLine" id="cb3-4" title="4">    startStats <span class="ot">&lt;-</span> getRTSStats</a>
+<a class="sourceLine" id="cb3-5" title="5">    startTime <span class="ot">&lt;-</span> getTime</a>
+<a class="sourceLine" id="cb3-6" title="6">    runRepeatedly func iters</a>
+<a class="sourceLine" id="cb3-7" title="7">    endTime <span class="ot">&lt;-</span> getTime</a>
+<a class="sourceLine" id="cb3-8" title="8">    performGC</a>
+<a class="sourceLine" id="cb3-9" title="9">    endStats <span class="ot">&lt;-</span> getRTSStats</a>
+<a class="sourceLine" id="cb3-10" title="10"></a>
+<a class="sourceLine" id="cb3-11" title="11">    <span class="co">-- Measure returns a /Measured/ record,</span></a>
+<a class="sourceLine" id="cb3-12" title="12">    <span class="co">-- and time at end of measurement.</span></a>
+<a class="sourceLine" id="cb3-13" title="13">    <span class="fu">return</span> (mkMeasured endStats startStats, endTime)</a></code></pre></div>
 <p>We have two calls to <code>performGC</code>, which is a manual way of calling the garbage collector. There were also two calls to <code>performGC</code> in the parent function, meaning we were paying four times for every sample taken. The parent ones can be removed almost immediately. They were just copied to the new <code>measure</code> location when they should have been permanently moved.</p>
 <p>That cuts the time in half, but we still have the two pesky ones in <code>measure</code>. The issue is that sometimes you need to work on a large data structure, like the <code>Map</code> above.</p>
 <h2 id="a-quick-primer-on-the-garbage-collector">A Quick Primer on the Garbage Collector</h2>

@@ -116,32 +116,32 @@ time                 73.59 ns   (73.25 ns .. 74.25 ns)</code></pre>
 <h2 id="allocation">Allocation</h2>
 <p>The second major change is that allocation numbers are now more accurate. We can use <a href="https://wiki.haskell.org/GHC/Memory_Footprint">this</a> page for calculating allocations.</p>
 <p>Here is benchmark that we can use to test:</p>
-<div class="sourceCode"><pre class="sourceCode haskell"><code class="sourceCode haskell"><span class="co">-- Alloc.hs</span>
-<span class="kw">module</span> <span class="dt">Main</span> <span class="kw">where</span>
-
-<span class="kw">import </span><span class="dt">Criterion.Main</span>
-
-<span class="ot">main ::</span> <span class="dt">IO</span> ()
-main <span class="fu">=</span> defaultMain
- [ bench <span class="st">&quot;Bool&quot;</span> <span class="fu">$</span> whnf (toEnum<span class="ot"> ::</span> <span class="dt">Int</span> <span class="ot">-&gt;</span> <span class="dt">Bool</span>) <span class="dv">0</span>
- <span class="co">-- ^ Should be 0, True and False are shared in memory</span>
- , bench <span class="st">&quot;Char&quot;</span> <span class="fu">$</span> whnf chr <span class="dv">0</span>
- <span class="co">-- ^ Should be 2 words, a single Char</span>
- ]</code></pre></div>
+<div class="sourceCode" id="cb5"><pre class="sourceCode haskell"><code class="sourceCode haskell"><a class="sourceLine" id="cb5-1" title="1"><span class="co">-- Alloc.hs</span></a>
+<a class="sourceLine" id="cb5-2" title="2"><span class="kw">module</span> <span class="dt">Main</span> <span class="kw">where</span></a>
+<a class="sourceLine" id="cb5-3" title="3"></a>
+<a class="sourceLine" id="cb5-4" title="4"><span class="kw">import</span> <span class="dt">Criterion.Main</span></a>
+<a class="sourceLine" id="cb5-5" title="5"></a>
+<a class="sourceLine" id="cb5-6" title="6"><span class="ot">main ::</span> <span class="dt">IO</span> ()</a>
+<a class="sourceLine" id="cb5-7" title="7">main <span class="fu">=</span> defaultMain</a>
+<a class="sourceLine" id="cb5-8" title="8"> [ bench <span class="st">&quot;Bool&quot;</span> <span class="fu">$</span> whnf (<span class="fu">toEnum</span><span class="ot"> ::</span> <span class="dt">Int</span> <span class="ot">-&gt;</span> <span class="dt">Bool</span>) <span class="dv">0</span></a>
+<a class="sourceLine" id="cb5-9" title="9"> <span class="co">-- ^ Should be 0, True and False are shared in memory</span></a>
+<a class="sourceLine" id="cb5-10" title="10"> , bench <span class="st">&quot;Char&quot;</span> <span class="fu">$</span> whnf <span class="fu">chr</span> <span class="dv">0</span></a>
+<a class="sourceLine" id="cb5-11" title="11"> <span class="co">-- ^ Should be 2 words, a single Char</span></a>
+<a class="sourceLine" id="cb5-12" title="12"> ]</a></code></pre></div>
 <p>Criterion lets you collect and analyze more data than just time. We can look at allocations with <code>--regress allocated:iters</code>. This will report how much is allocated in a single iteration. We also need to turn on stat collection with <code>+RTS -T</code>.</p>
-<div class="sourceCode"><pre class="sourceCode haskell"><code class="sourceCode haskell"><span class="fu">$</span> <span class="fu">./</span><span class="dt">Alloc</span> <span class="co">--regress allocated:iters +RTS -T</span>
-
-benchmarking primitives<span class="fu">/</span><span class="dt">Bool</span>
-  iters              <span class="fl">1.165e-7</span>   (<span class="fu">-</span><span class="fl">1.831e-5</span> <span class="fu">..</span> <span class="fl">2.058e-5</span>)
-
-benchmarking primitives<span class="fu">/</span><span class="dt">Char</span>
-  iters              <span class="fl">16.000</span>     (<span class="fl">16.000</span> <span class="fu">..</span> <span class="fl">16.000</span>)</code></pre></div>
+<div class="sourceCode" id="cb6"><pre class="sourceCode haskell"><code class="sourceCode haskell"><a class="sourceLine" id="cb6-1" title="1"><span class="fu">$</span> <span class="fu">./</span><span class="dt">Alloc</span> <span class="co">--regress allocated:iters +RTS -T</span></a>
+<a class="sourceLine" id="cb6-2" title="2"></a>
+<a class="sourceLine" id="cb6-3" title="3">benchmarking primitives<span class="fu">/</span><span class="dt">Bool</span></a>
+<a class="sourceLine" id="cb6-4" title="4">  iters              <span class="fl">1.165e-7</span>   (<span class="fu">-</span><span class="fl">1.831e-5</span> <span class="fu">..</span> <span class="fl">2.058e-5</span>)</a>
+<a class="sourceLine" id="cb6-5" title="5"></a>
+<a class="sourceLine" id="cb6-6" title="6">benchmarking primitives<span class="fu">/</span><span class="dt">Char</span></a>
+<a class="sourceLine" id="cb6-7" title="7">  iters              <span class="fl">16.000</span>     (<span class="fl">16.000</span> <span class="fu">..</span> <span class="fl">16.000</span>)</a></code></pre></div>
 <p>The value after <code>iters</code> is the number of bytes allocated per iteration. If we multiply our guess by 8 (because a word is 8 bytes on my machine), we see that they match. Here’s the output from before my change, but after a garbage collection change that improved the results greatly.</p>
-<div class="sourceCode"><pre class="sourceCode haskell"><code class="sourceCode haskell">benchmarking primitives<span class="fu">/</span><span class="dt">Bool</span>
-  iters              <span class="fl">32.000</span>     (<span class="fl">32.000</span> <span class="fu">..</span> <span class="fl">32.000</span>)
-
-benchmarking primitives<span class="fu">/</span><span class="dt">Char</span>
-  iters              <span class="fl">48.000</span>     (<span class="fl">48.000</span> <span class="fu">..</span> <span class="fl">48.000</span>)</code></pre></div>
+<div class="sourceCode" id="cb7"><pre class="sourceCode haskell"><code class="sourceCode haskell"><a class="sourceLine" id="cb7-1" title="1">benchmarking primitives<span class="fu">/</span><span class="dt">Bool</span></a>
+<a class="sourceLine" id="cb7-2" title="2">  iters              <span class="fl">32.000</span>     (<span class="fl">32.000</span> <span class="fu">..</span> <span class="fl">32.000</span>)</a>
+<a class="sourceLine" id="cb7-3" title="3"></a>
+<a class="sourceLine" id="cb7-4" title="4">benchmarking primitives<span class="fu">/</span><span class="dt">Char</span></a>
+<a class="sourceLine" id="cb7-5" title="5">  iters              <span class="fl">48.000</span>     (<span class="fl">48.000</span> <span class="fu">..</span> <span class="fl">48.000</span>)</a></code></pre></div>
 <p>So I managed to save 32 bytes per iteration. Which not only makes the results cleaner, but also prevents the useless allocation of memory. For reference, currently the <code>Char</code> benchmark runs for ~500 million iterations total. That comes out to 16GB of saved memory.</p>
 <hr />
 <p>It turns out that the vast majority of the improvements came by switching to <code>performMinorGC</code> instead of <code>performGC</code>, but I think the other changes were worth it. When the number one suggestion for reasoning about Haskell code is “benchmark it”, your benchmarks better be pretty darn accurate.</p>

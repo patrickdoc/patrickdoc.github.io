@@ -9,7 +9,7 @@
 
 # Pandoc
 PANDOC=/usr/bin/pandoc
-PANDOC_OPTIONS=--smart
+PANDOC_OPTIONS=-f markdown+smart
 PANDOC_HTML_OPTIONS=--to html5 --template=template.html
 
 # Files
