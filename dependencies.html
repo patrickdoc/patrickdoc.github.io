@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html lang="en-US">
+<head>
+  <meta charset="utf-8">
+  <meta name="generator" content="pandoc">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes">
+  <meta name="author" content="Patrick Dougherty">
+  <meta name="Description" content="The search for organization and stability in code">
+  <title>Dependencies</title>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Lora:400,700%7cInconsolata:400,700">
+  <link rel="stylesheet" href="/site.mini.css">
+</head>
+<body>
+
+  <header>
+    <div class="links">
+      <a href="/index.html">Home</a>
+      <a></a>
+      <a href="/about.html">About</a>
+    </div>
+  </header>
+
+  <section>
+    <article>
+<ul>
+<li>static vs dynamic linking</li>
+<li>private vs public vs interface vs util</li>
+<li>app to app deps (in-house)</li>
+<li>3rd party deps (boms, spring vs apache, SemVer)</li>
+<li>backward compatibilty</li>
+<li>chains of Chef cookbooks</li>
+<li>build times (Java code or docker image)</li>
+<li>microservice vs monolith</li>
+<li>modularity in code vs “spaghetti code”</li>
+<li>NixOS + state management</li>
+<li>dependency confusion: alex birsan medium</li>
+</ul>
+<h1 id="dependencies">Dependencies</h1>
+<p>There is an inherent structure to code that is often ignored. Some pieces of code depend upon other pieces of code to function correctly. This dependency establishes a relationship, and these relationships have real consequences for your program.</p>
+<h2 id="functions">Functions</h2>
+<p>Interestingly, these relationships exist across all levels of programming and all programming languages. These dependencies come into play with just a few lines of code,</p>
+<div class="sourceCode" id="cb1"><pre class="sourceCode c"><code class="sourceCode c"><a class="sourceLine" id="cb1-1" title="1"><span class="dt">int</span> func() {</a>
+<a class="sourceLine" id="cb1-2" title="2">    <span class="dt">int</span> x = <span class="dv">5</span> * <span class="dv">2</span>;</a>
+<a class="sourceLine" id="cb1-3" title="3">    <span class="dt">int</span> y = <span class="dv">10</span> * <span class="dv">2</span>;</a>
+<a class="sourceLine" id="cb1-4" title="4">    <span class="dt">int</span> z = x * <span class="dv">1000</span>;</a>
+<a class="sourceLine" id="cb1-5" title="5">    <span class="cf">return</span> z;</a>
+<a class="sourceLine" id="cb1-6" title="6">}</a></code></pre></div>
+<p>Looking at this code, we can see that the return value, <code>z</code>, does not depend on <code>y</code>. This means that we could theoretically skip <code>10*2</code> because the result doesn’t impact the program. Some languages exploit this relationship to avoid doing unnecessary work. It’s surprisingly tricky to get right, but it can be done!</p>
+<h2 id="modules">Modules</h2>
+<p>This relationship exists at the file level too. Using Java syntax, you might have these classes,</p>
+<div class="sourceCode" id="cb2"><pre class="sourceCode java"><code class="sourceCode java"><a class="sourceLine" id="cb2-1" title="1"><span class="kw">package</span><span class="im"> example;</span></a>
+<a class="sourceLine" id="cb2-2" title="2"></a>
+<a class="sourceLine" id="cb2-3" title="3"><span class="kw">public</span> <span class="kw">class</span> A {</a>
+<a class="sourceLine" id="cb2-4" title="4">    ...</a>
+<a class="sourceLine" id="cb2-5" title="5">}</a></code></pre></div>
+<div class="sourceCode" id="cb3"><pre class="sourceCode java"><code class="sourceCode java"><a class="sourceLine" id="cb3-1" title="1"><span class="kw">import</span><span class="im"> example.A;</span></a>
+<a class="sourceLine" id="cb3-2" title="2"></a>
+<a class="sourceLine" id="cb3-3" title="3"><span class="kw">public</span> <span class="kw">class</span> B <span class="kw">extends</span> A {</a>
+<a class="sourceLine" id="cb3-4" title="4">    ...</a>
+<a class="sourceLine" id="cb3-5" title="5">}</a></code></pre></div>
+<div class="sourceCode" id="cb4"><pre class="sourceCode java"><code class="sourceCode java"><a class="sourceLine" id="cb4-1" title="1"><span class="kw">public</span> <span class="kw">class</span> C {</a>
+<a class="sourceLine" id="cb4-2" title="2">    ...</a>
+<a class="sourceLine" id="cb4-3" title="3">}</a></code></pre></div>
+<p>The compiler likely needs to compile <code>A</code> before it compiles <code>B</code>. However, it can exploit the fact that <code>C</code> doesn’t depend on either <code>A</code> or <code>B</code>, and compile <code>C</code> in parallel.</p>
+<h2 id="packages">Packages</h2>
+<p>This trend continues as your program adds dependencies to external libraries. Depending on what language you are using, you might have a file that lists out libraries that your program requires.</p>
+<p>These relationships start getting complicated because those libraries often depend on other libraries. And sometimes you need library <code>A</code> and library <code>B</code>, and they both need different versions of library <code>C</code>. Resolving this is not trivial.</p>
+<h2 id="applications">Applications</h2>
+<p>Some relationships are not even explicitly mentioned in the code. If your application requires a database or 3rd party service, then these relationships only exist when your application is running.</p>
+<p>Nevertheless, it is the same underlying dependency. One piece of code needs another piece of code to function.</p>
+<h2 id="etc.">Etc.</h2>
+<p>All of these dependencies are mostly invisible. IDE’s hide module dependencies by folding away the import statements. Compilers and linkers deal with finding all the different pieces for you. Package managers put all the configuration in a file separate from the code. And runtime dependencies are barely even visible to begin with.</p>
+<p>By ignoring them, we are both laying traps for ourselves and losing out on some of the possibilities.</p>
+      <a href="dependencies-data.html" id="small-forward">Next</a>
+    </article>
+    <a href="dependencies-data.html" id="big-forward">❯</a>
+  </section>
+
+  <footer>
+    <hr>
+    <div class="links">
+      <p>© 2018 Patrick Dougherty</p>
+      <a></a>
+      <a href="https://github.com/patrickdoc/patrickdoc.github.io">source</a>
+      <a href="mailto:patrick.doc@port67.org">patrick.doc@port67.org</a>
+    </div>
+  </footer>
+
+</body>
+</html>
