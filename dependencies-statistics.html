@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html lang="en-US">
+<head>
+  <meta charset="utf-8">
+  <meta name="generator" content="pandoc">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes">
+  <meta name="author" content="Patrick Dougherty">
+  <title>Dependencies - Statistics</title>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Lora:400,700%7cInconsolata:400,700">
+  <link rel="stylesheet" href="/site.mini.css">
+</head>
+<body>
+
+  <header>
+    <div class="links">
+      <a href="/index.html">Home</a>
+      <a></a>
+      <a href="/about.html">About</a>
+    </div>
+  </header>
+
+  <section>
+    <article>
+<h1 id="graphs-and-structural-equivalence">Graphs and Structural Equivalence</h1>
+<p>We’d like to rebuild this bit of R code in Java so that we can integrate it into a Maven plugin.</p>
+<div class="sourceCode" id="cb1"><pre class="sourceCode r"><code class="sourceCode r"><a class="sourceLine" id="cb1-1" title="1"><span class="kw">library</span>(sna)</a>
+<a class="sourceLine" id="cb1-2" title="2"></a>
+<a class="sourceLine" id="cb1-3" title="3">g&lt;-<span class="kw">read.dot</span>(<span class="st">&quot;cluster.dot&quot;</span>)</a>
+<a class="sourceLine" id="cb1-4" title="4">eq&lt;-<span class="kw">equiv.clust</span>(g)</a>
+<a class="sourceLine" id="cb1-5" title="5"><span class="kw">plot</span>(eq, <span class="dt">cex=</span><span class="fl">0.6</span>, <span class="dt">hang=</span><span class="op">-</span><span class="dv">1</span>)</a></code></pre></div>
+<p>So we have three pieces to work on: - Reading dot files - Creating an <code>equiv.clust</code> - Writing that back to the filesystem (instead of plotting the dendrogram)</p>
+<p>Let’s start chipping away.</p>
+<h2 id="graphviz-dot-files">GraphViz dot Files</h2>
+<p>The “dot” format is pretty simple,</p>
+<div class="sourceCode" id="cb2"><pre class="sourceCode dot"><code class="sourceCode dot"><a class="sourceLine" id="cb2-1" title="1"><span class="kw">digraph</span> <span class="ot">{</span></a>
+<a class="sourceLine" id="cb2-2" title="2"><span class="co">    </span><span class="va">a</span></a>
+<a class="sourceLine" id="cb2-3" title="3"><span class="co">    </span><span class="va">b</span><span class="co"> </span><span class="ot">-&gt;</span><span class="co"> </span><span class="va">c</span></a>
+<a class="sourceLine" id="cb2-4" title="4"><span class="ot">}</span></a></code></pre></div>
+<p>This declares a “directed graph”, or digraph. It first declares that there is a node called <code>a</code>. And then declares that there is an edge from node <code>b</code> to node <code>c</code>. The format also allows for some additional properties and structure to be included, but we only care about nodes and the edges between them.</p>
+<p>The code for this is occurs in two passes. First, it scans the <code>dot</code> file to find all of the node names. Then, it creates a two dimensional array where <code>array[a][b]</code> is <code>1</code> if node <code>a</code> depends on node <code>b</code>, otherwise <code>0</code>.</p>
+<p><a href="https://github.com/patrickdoc/auto-cluster-maven-plugin/blob/a04b5aa075747e5968fd95bf5b1e938d00aa400f/src/main/java/_3/_1/DependencyMatrix.java">Source code</a></p>
+<h2 id="distance-matrix">Distance Matrix</h2>
+<p>Now that we have our dependency data in our program, we can start manipulating it.</p>
+<p>Currently our data represents whether or not class <code>a</code> depends on class <code>b</code>. But the clustering algorithm wants input data that represents a “distance” or “difference” between two classes. In particular, the input data for the clustering algorithm should be “symmetrical”.</p>
+<p>So based on our dependency data, we need to create a new matrix where <code>data[a][b] == data[b][a]</code> and it represents how different class <code>a</code> and <code>b</code> are.</p>
+<p>We are going to use the <a href="https://en.wikipedia.org/wiki/Hamming_distance">Hamming distance</a> because it is trivial to compute and fits our needs nicely. For every pair of rows in the distance matrix, we simply count the number of cells where they are different. For example, given this input matrix,</p>
+<pre><code>    a  b  c
+a  {1, 1, 0}
+b  {0, 1, 0}
+c  {0, 0, 1}</code></pre>
+<p>We can calculate the distance between <code>a</code> and <code>b</code> like this,</p>
+<pre><code>a  {1, 1, 0}
+b  {0, 1, 0}
+    1 +0 +0 = 1</code></pre>
+<p>The values match in two of the three columns, so the distance between <code>a</code> and <code>b</code> is 1.</p>
+<p>Applying this to all pairs, the resulting distance matrix would be,</p>
+<pre><code>    a  b  c
+a  {0, 1, 3}
+b  {1, 0, 2}
+c  {3, 2, 0}</code></pre>
+<p>Note that this matrix is symmetrical. You can remove everything either below or above the diagonal and you still have all the information,</p>
+<pre><code>    a  b  c
+a  {0, 1, 3}
+b  {   0, 2}
+c  {      0}</code></pre>
+<p><a href="https://github.com/patrickdoc/auto-cluster-maven-plugin/blob/a04b5aa075747e5968fd95bf5b1e938d00aa400f/src/main/java/_3/_1/DistanceMatrix.java">Source code</a></p>
+<h2 id="equiv.clust">equiv.clust</h2>
+<p>This is where all of the interesting work occurs. The actual algorithm comes from <a href="https://arxiv.org/pdf/1109.2378.pdf">this paper</a>, but the general strategy is that we find the two closest nodes, merge them into a single new node, recalculate the distances for this new node, and repeat until we have just one node.</p>
+<p>This algorithm builds up a binary tree from the bottom. So every merge is just combining two nodes under a parent node and recording the difference between them.</p>
+<p>Given our distance matrix,</p>
+<pre><code>    a  b  c
+a  {0, 1, 3}
+b  {   0, 2}
+c  {      0}</code></pre>
+<p>The closest pair is <code>a</code> and <code>b</code>, with a distance of 1. This results in a new node, <code>n1 = (a, b, 1)</code>. Now the closest pair – because it is the only pair – is <code>n1</code> and <code>c</code>. The distance is calculated as the maximum distance between <code>c</code> and all of the nodes in <code>n1</code>. In this case, the max is between <code>c</code> and <code>a</code>, and so the distance is 3. This gives us our final node <code>n2 = (c, n1, 3)</code>.</p>
+<p>Visually, our tree would look like this,</p>
+<pre><code>3
+├── 1
+│   ├── a
+│   └── b
+└── c</code></pre>
+<p><a href="https://github.com/patrickdoc/auto-cluster-maven-plugin/blob/a04b5aa075747e5968fd95bf5b1e938d00aa400f/src/main/java/_3/_1/Hclust.java">Source code</a></p>
+<h2 id="writing-back-to-the-filesystem">Writing Back to the Filesystem</h2>
+<p>Finally we can write this binary tree back to the filesystem. This is a simple function that creates a directory if the node has children, or copies the file from the existing source if it is one of the original classes.</p>
+<p>There is a bit of additional functionality to avoid deleting non-Java files, but the main strategy is to write the files to a temp folder, then delete the existing source files, and move the temp folder into position.</p>
+<p><a href="https://github.com/patrickdoc/auto-cluster-maven-plugin/blob/a04b5aa075747e5968fd95bf5b1e938d00aa400f/src/main/java/_3/_1/FileCluster.java">Source code</a></p>
+      <a href="dependencies-analysis.html" id="small-back">Previous</a>
+      <a href="dependencies-conclusion.html" id="small-forward">Next</a>
+    </article>
+    <a href="dependencies-analysis.html" id="big-back">❮</a>
+    <a href="dependencies-conclusion.html" id="big-forward">❯</a>
+  </section>
+
+  <footer>
+    <hr>
+    <div class="links">
+      <p>© 2018 Patrick Dougherty</p>
+      <a></a>
+      <a href="https://github.com/patrickdoc/patrickdoc.github.io">source</a>
+      <a href="mailto:patrick.doc@port67.org">patrick.doc@port67.org</a>
+    </div>
+  </footer>
+
+</body>
+</html>

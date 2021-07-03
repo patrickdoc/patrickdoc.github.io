@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="en-US">
+<head>
+  <meta charset="utf-8">
+  <meta name="generator" content="pandoc">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes">
+  <meta name="author" content="Patrick Dougherty">
+  <title>Dependencies - Conclusion</title>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Lora:400,700%7cInconsolata:400,700">
+  <link rel="stylesheet" href="/site.mini.css">
+</head>
+<body>
+
+  <header>
+    <div class="links">
+      <a href="/index.html">Home</a>
+      <a></a>
+      <a href="/about.html">About</a>
+    </div>
+  </header>
+
+  <section>
+    <article>
+<p>This functionality is available in a <a href="https://github.com/patrickdoc/auto-cluster-maven-plugin">maven plugin</a>.</p>
+<p>To use it, simply run,</p>
+<div class="sourceCode" id="cb1"><pre class="sourceCode bash"><code class="sourceCode bash"><a class="sourceLine" id="cb1-1" title="1"><span class="ex">mvn</span> io.github.patrickdoc:auto-cluster-maven-plugin:cluster</a></code></pre></div>
+<p>This will create a folder called <code>src/main/auto-cluster-maven-plugin1234...</code> which will have your code automatically organized by the clustering algorithm.</p>
+<p>If you would like to use this structure instead of what you currently have, you can run with <code>-DdryRun=false</code>, and it will overwrite your current directories.</p>
+<p>I would highly recommend you only disable <code>dryRun</code> if you use version control.</p>
+<h2 id="how-to-benefit">How to Benefit</h2>
+<p>This is a proof of concept, but it should be enough to test two hypotheses.</p>
+<p>1.) By aggressively exposing the dependency structure of our code, we can identify and resolve mismatches between the way we think it works or the way we want it to work and how it actually works.</p>
+<p>2.) By encoding our organization as an algorithm, we can have concrete discussions on improvements.</p>
+<p>Both of these are based on you the developer seeing something that you think it wrong. If the new structure of the code doesn’t match what you want, then it is time to investigate.</p>
+<p>If you investigate and discover that there are dependencies in the code that are skewing the results, then this plugin has succeeded in its goal. It successfully identified something you don’t want.</p>
+<p>If you investigate and discover that the plugin is not producing the output that you want, then we can have a concrete conversation about what exactly you don’t like. The two main configurations we can change are the distance calculation and the clustering algorithm.</p>
+<p>Luckily, both of these have already been extensively investigated in the statistics community, so there are options available. We just need to figure out which options capture the relationships we want.</p>
+      <a href="dependencies-statistics.html" id="small-back">Previous</a>
+    </article>
+    <a href="dependencies-statistics.html" id="big-back">❮</a>
+  </section>
+
+  <footer>
+    <hr>
+    <div class="links">
+      <p>© 2018 Patrick Dougherty</p>
+      <a></a>
+      <a href="https://github.com/patrickdoc/patrickdoc.github.io">source</a>
+      <a href="mailto:patrick.doc@port67.org">patrick.doc@port67.org</a>
+    </div>
+  </footer>
+
+</body>
+</html>
