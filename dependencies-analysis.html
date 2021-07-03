@@ -23,12 +23,81 @@
     <article>
 <h1 id="measuring-and-visualizing-module-dependencies">Measuring and Visualizing Module Dependencies</h1>
 <p>We now have data and a method to visualize that data. But we still haven’t extracted any actionable information. To do that, we need to tighten up our definition of what we are looking for.</p>
-<p>To recap,</p>
+<p>To recap, we are interested in making the dependency structure of programs more visible and using that structure to our advantage. So far we have set up some tooling for extracting the raw dependency data from Java programs built with Maven. Our next goal is to get that data into a form that we can analyze and work with.</p>
+<h2 id="data-science-and-r">Data Science and R</h2>
+<p>I’m neither a data scientist nor a statistician, but I know just enough to know that this sounds like a data science problem. Which means that everything we need probably exists, and it probably all exists in R.</p>
+<div class="sourceCode" id="cb1"><pre class="sourceCode r"><code class="sourceCode r"><a class="sourceLine" id="cb1-1" title="1"><span class="kw">library</span>(sna)</a>
+<a class="sourceLine" id="cb1-2" title="2"></a>
+<a class="sourceLine" id="cb1-3" title="3">g&lt;-<span class="kw">read.dot</span>(<span class="st">&quot;cluster.dot&quot;</span>)</a>
+<a class="sourceLine" id="cb1-4" title="4">eq&lt;-<span class="kw">equiv.clust</span>(g)</a>
+<a class="sourceLine" id="cb1-5" title="5"><span class="kw">plot</span>(eq, <span class="dt">cex=</span><span class="fl">0.6</span>, <span class="dt">hang=</span><span class="op">-</span><span class="dv">1</span>)</a></code></pre></div>
+<p>And just like that, we have something approximating what we are looking for:</p>
+<p>IMAGE FROM R</p>
+<p>This is called a “dendrogram” and is used to display “hierarchical clusters”. Along the x-axis are the classes from our data. Each one forms a “cluster” of one class. If you follow the vertical line up from a cluster, you eventually hit a horizontal line. The horizontal line creates a new cluster by combining the clusters underneath it. The height of the line indicates how different the internal clusters are.</p>
+<p>This representation maps quite easily to the filesystem. Horizontal lines would be directories, and the nodes would be files. So let’s do that transalation.</p>
+<h2 id="dendrogram-to-filesystem">Dendrogram to Filesystem</h2>
+<p>The dendrogram data type is pretty simple. It is a binary tree where each node records the “difference” between its two children. The calculation of the difference is where all the magic happens, but for now we’ll just focus on the output. In our code, the calculated difference between the nodes will be the directory name.</p>
+<p>Here is some pseudo-code describing the conversion from dendrogram to filesystem.</p>
+<div class="sourceCode" id="cb2"><pre class="sourceCode r"><code class="sourceCode r"><a class="sourceLine" id="cb2-1" title="1">dendToFS &lt;-<span class="st"> </span><span class="cf">function</span>(input, currentDir) {</a>
+<a class="sourceLine" id="cb2-2" title="2">    <span class="cf">if</span> (<span class="kw">typeof</span>(input) <span class="op">==</span><span class="st"> &quot;list&quot;</span>) {</a>
+<a class="sourceLine" id="cb2-3" title="3">        <span class="cf">for</span> (node <span class="cf">in</span> input) {</a>
+<a class="sourceLine" id="cb2-4" title="4">            difference &lt;-<span class="st"> </span><span class="kw">attr</span>(dend[[x]], <span class="st">&#39;height&#39;</span>)</a>
+<a class="sourceLine" id="cb2-5" title="5">            <span class="kw">dendToFS</span>(node, currentDir <span class="op">+</span><span class="st"> &quot;/&quot;</span> <span class="op">+</span><span class="st"> </span>difference)</a>
+<a class="sourceLine" id="cb2-6" title="6">        }</a>
+<a class="sourceLine" id="cb2-7" title="7">    } <span class="cf">else</span> {</a>
+<a class="sourceLine" id="cb2-8" title="8">        fileName &lt;-<span class="st"> </span><span class="kw">attr</span>(input, <span class="st">&#39;label)</span></a>
+<a class="sourceLine" id="cb2-9" title="9"><span class="st">        file.copy(input, currentDir)</span></a>
+<a class="sourceLine" id="cb2-10" title="10"><span class="st">    }</span></a>
+<a class="sourceLine" id="cb2-11" title="11"><span class="st">}</span></a></code></pre></div>
+<p>If the input is a node, we get the calculated difference and append that to the destination path. If the input is a leaf, we get the file name and copy it from the source to the destination folder.</p>
+<p>Connecting this with our <code>maven</code> plugin from last time, we can generate a new directory structure in just two commands,</p>
+<div class="sourceCode" id="cb3"><pre class="sourceCode bash"><code class="sourceCode bash"><a class="sourceLine" id="cb3-1" title="1">$ <span class="ex">mvn</span> org.port67:auto-cluster-maven-plugin:dot -DbasePackages=io.github.classgraph,nonapi.io.github.classgraph</a>
+<a class="sourceLine" id="cb3-2" title="2">$ <span class="ex">Rscript</span> cluster.r</a></code></pre></div>
+<p>Which creates a fully operational copy of the project. You can run <code>mvn clean install</code> from the root and it will work just fine. Using the <code>tree</code> program to display the results,</p>
+<div class="sourceCode" id="cb4"><pre class="sourceCode bash"><code class="sourceCode bash"><a class="sourceLine" id="cb4-1" title="1">$ <span class="ex">tree</span> ~/cluster-temp/classgraph/src/main/java</a>
+<a class="sourceLine" id="cb4-2" title="2">├── <span class="ex">63</span></a>
+<a class="sourceLine" id="cb4-3" title="3">│   ├── <span class="ex">43</span></a>
+<a class="sourceLine" id="cb4-4" title="4">│   │   ├── <span class="ex">ClassInfo.java</span></a>
+<a class="sourceLine" id="cb4-5" title="5">│   │   └── <span class="ex">ScanResult.java</span></a>
+<a class="sourceLine" id="cb4-6" title="6">│   └── <span class="ex">47</span></a>
+<a class="sourceLine" id="cb4-7" title="7">│       ├── <span class="ex">34</span></a>
+<a class="sourceLine" id="cb4-8" title="8">│       │   ├── <span class="ex">25</span></a>
+<a class="sourceLine" id="cb4-9" title="9">│       │   │   ├── <span class="ex">19</span></a>
+<a class="sourceLine" id="cb4-10" title="10">│       │   │   │   ├── <span class="ex">14</span></a>
+<a class="sourceLine" id="cb4-11" title="11">│       │   │   │   │   ├── <span class="ex">10</span></a>
+<a class="sourceLine" id="cb4-12" title="12">│       │   │   │   │   │   ├── <span class="ex">ArrayTypeSignature.java</span></a>
+<a class="sourceLine" id="cb4-13" title="13">│       │   │   │   │   │   └── <span class="ex">BaseTypeSignature.java</span></a>
+<a class="sourceLine" id="cb4-14" title="14">│       │   │   │   │   └── <span class="ex">TypeSignature.java</span></a>
+<a class="sourceLine" id="cb4-15" title="15">│       │   │   │   └── <span class="ex">15</span></a>
+<a class="sourceLine" id="cb4-16" title="16">│       │   │   │       ├── <span class="ex">13</span></a>
+<a class="sourceLine" id="cb4-17" title="17">│       │   │   │       │   ├── <span class="ex">ClassRefOrTypeVariableSignature.java</span></a>
+<a class="sourceLine" id="cb4-18" title="18">│       │   │   │       │   └── <span class="ex">ReferenceTypeSignature.java</span></a>
+<a class="sourceLine" id="cb4-19" title="19">│       │   │   │       └── <span class="ex">ClassRefTypeSignature.java</span></a>
+<a class="sourceLine" id="cb4-20" title="20">│       │   │   └── <span class="ex">20</span></a>
+<a class="sourceLine" id="cb4-21" title="21">│       │   │       ├── <span class="ex">11</span></a>
+<a class="sourceLine" id="cb4-22" title="22">│       │   │       │   ├── <span class="ex">HierarchicalTypeSignature.java</span></a>
+<a class="sourceLine" id="cb4-23" title="23">│       │   │       │   └── <span class="ex">TypeArgument.java</span></a>
+<a class="sourceLine" id="cb4-24" title="24">│       │   │       └── <span class="ex">13</span></a>
+<a class="sourceLine" id="cb4-25" title="25">│       │   │           ├── <span class="ex">10</span></a>
+<a class="sourceLine" id="cb4-26" title="26">│       │   │           │   ├── <span class="ex">9</span></a>
+<a class="sourceLine" id="cb4-27" title="27">│       │   │           │   │   ├── <span class="ex">ClassTypeSignature.java</span></a>
+<a class="sourceLine" id="cb4-28" title="28">│       │   │           │   │   └── <span class="ex">TypeVariableSignature.java</span></a>
+<a class="sourceLine" id="cb4-29" title="29">│       │   │           │   └── <span class="ex">TypeParameter.java</span></a>
+<a class="sourceLine" id="cb4-30" title="30">│       │   │           └── <span class="ex">MethodTypeSignature.java</span></a>
+<a class="sourceLine" id="cb4-31" title="31"><span class="ex">...</span></a></code></pre></div>
+<p>Based exclusively on the dependency information between classes, this is how the algorithm chose to group these files. This lines up remarkably well with the author’s naming schme. There are 134 source files, and “Signature” does not appear a single time outside of this group. “Type” only appears 5 more times.</p>
+<p>This structure is a large part of how the compiler sees your code. It has to know in what order to compile source files, and then it must link all of them together to verify names and types match up. It also seems to be at least partly how the author sees this code. He wrote these classes to depend on each other, and he picked names that are closely related.</p>
+<p>I have a hunch that most conversations that people have about “good” and “bad” code are really about this structure. But we don’t have a good set of tools for examining and manipulating it. So that’s what I’m trying to do here.</p>
+<h2 id="so-where-to-next">So Where to Next?</h2>
+<p>We now have a functional (albeit, somewhat silly) way of extracting the structure and applying it back to the source files. We’ll need to smooth out some of the rough edges so that using it is as painless as possible. Which means we’ll probably need to pick one language. I have more confidence that I can rewrite the R bits in Java, so we’ll go that route.</p>
+<p>This means that we’ll have to break down the magic behind,</p>
+<div class="sourceCode" id="cb5"><pre class="sourceCode r"><code class="sourceCode r"><a class="sourceLine" id="cb5-1" title="1">g&lt;-<span class="kw">read.dot</span>(<span class="st">&quot;cluster.dot&quot;</span>)</a>
+<a class="sourceLine" id="cb5-2" title="2">eq&lt;-<span class="kw">equiv.clust</span>(g)</a></code></pre></div>
       <a href="dependencies-data.html" id="small-back">Previous</a>
-      <a href="dependencies-tooling.html" id="small-forward">Next</a>
+      <a href="dependencies-statistics.html" id="small-forward">Next</a>
     </article>
     <a href="dependencies-data.html" id="big-back">❮</a>
-    <a href="dependencies-tooling.html" id="big-forward">❯</a>
+    <a href="dependencies-statistics.html" id="big-forward">❯</a>
   </section>
 
   <footer>
