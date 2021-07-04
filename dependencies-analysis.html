@@ -32,7 +32,9 @@
 <a class="sourceLine" id="cb1-4" title="4">eq&lt;-<span class="kw">equiv.clust</span>(g)</a>
 <a class="sourceLine" id="cb1-5" title="5"><span class="kw">plot</span>(eq, <span class="dt">cex=</span><span class="fl">0.6</span>, <span class="dt">hang=</span><span class="op">-</span><span class="dv">1</span>)</a></code></pre></div>
 <p>And just like that, we have something approximating what we are looking for:</p>
-<p>IMAGE FROM R</p>
+<figure>
+<img src="images/dependencies/ClassgraphDendrogram.png" alt="Dendrogram of ClassGraph source code" /><figcaption>Dendrogram of ClassGraph source code</figcaption>
+</figure>
 <p>This is called a “dendrogram” and is used to display “hierarchical clusters”. Along the x-axis are the classes from our data. Each one forms a “cluster” of one class. If you follow the vertical line up from a cluster, you eventually hit a horizontal line. The horizontal line creates a new cluster by combining the clusters underneath it. The height of the line indicates how different the internal clusters are.</p>
 <p>This representation maps quite easily to the filesystem. Horizontal lines would be directories, and the nodes would be files. So let’s do that transalation.</p>
 <h2 id="dendrogram-to-filesystem">Dendrogram to Filesystem</h2>
