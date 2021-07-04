@@ -49,7 +49,10 @@
 <div class="sourceCode" id="cb2"><pre class="sourceCode java"><code class="sourceCode java"><a class="sourceLine" id="cb2-1" title="1"><span class="bu">String</span>[] basePackages = <span class="kw">new</span> <span class="bu">String</span>[]{<span class="st">&quot;io.github.classgraph&quot;</span>, <span class="st">&quot;nonapi.io.github.classgraph&quot;</span>};</a></code></pre></div>
 <p>Running this with some code that writes the <code>graphDot</code> string to a file called <code>cluster.dot</code>, we can generate an svg.</p>
 <div class="sourceCode" id="cb3"><pre class="sourceCode bash"><code class="sourceCode bash"><a class="sourceLine" id="cb3-1" title="1"><span class="ex">dot</span> -Tsvg -O cluster.dot</a></code></pre></div>
-<p>And then open the resulting svg in a browser: <a href="">cluster.dot.svg</a></p>
+<p>And then open the resulting svg in a browser:</p>
+<figure>
+<img src="images/dependencies/cluster.dot.svg" alt="Dependencies graphed using GraphVis’s dot algorithm" /><figcaption>Dependencies graphed using GraphVis’s dot algorithm</figcaption>
+</figure>
 <p>The resulting image is not very useful. I’ve successfully used it in the past, but I 1) knew the source code already and 2) was looking for very specific connections.</p>
 <p>However, we can at least try to draw some conclusions from looking at the image. In no particular order,</p>
 <h3 id="zoom">Zoom</h3>
@@ -70,8 +73,7 @@
 <li><p>The division does exist in the code structure, but the image layout algorithm does not make that clear. In this case, <code>dot</code> tries to minimize line lengths and overlaps. But we might be willing to make the image larger if it more effectively showed the divisions that we wanted.</p></li>
 </ol>
 <h3 id="not-shaped-like-the-filesystem">Not Shaped Like the Filesystem</h3>
-<p>No matter how complex our dependency structure is, we eventually have to map it back to files in the filesystem. We must organize our code in a basic file and folder hierarchy[^1].</p>
-<p>[^1] While soft and hard-links are an option, I’ve never seen anyone use them to help with code organization. A more flexible filesystem would be an interesting direction to explore.</p>
+<p>No matter how complex our dependency structure is, we eventually have to map it back to files in the filesystem. We must organize our code in a basic file and folder hierarchy<a href="#fn1" class="footnote-ref" id="fnref1"><sup>1</sup></a>.</p>
 <p>This image does not easily map back to files in the filesystem. So any information we extract from the image must be translated before we apply it to the filesystem.</p>
 <h2 id="preparing-for-analysis">Preparing for Analysis</h2>
 <p>Next time, we will try to improve on some of the issues above. But if we are going to look at other projects, we want it to be easy to extract this data.</p>
@@ -80,6 +82,12 @@
 <p>To handle the case where classgraph has multiple <code>basePackages</code>, we can pass them as parameters,</p>
 <div class="sourceCode" id="cb5"><pre class="sourceCode bash"><code class="sourceCode bash"><a class="sourceLine" id="cb5-1" title="1"><span class="ex">mvn</span> org.port67:auto-cluster-maven-plugin:dot -DbasePackages=nonapi.io.github.classgraph,io.github.classgraph</a></code></pre></div>
 <p>This will compile the code and dump a <code>cluster.dot</code> for us to start playing with.</p>
+<section class="footnotes">
+<hr />
+<ol>
+<li id="fn1"><p>While soft and hard-links are an option, I’ve never seen anyone use them to help with code organization. A more flexible filesystem would be an interesting direction to explore.<a href="#fnref1" class="footnote-back">↩</a></p></li>
+</ol>
+</section>
       <a href="dependencies.html" id="small-back">Previous</a>
       <a href="dependencies-analysis.html" id="small-forward">Next</a>
     </article>
